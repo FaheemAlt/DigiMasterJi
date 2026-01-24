@@ -1,9 +1,9 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import {
+import { 
   LandingPage,
-  LoginPage,
-  RegisterPage,
-  ProfileSelectionPage,
+  LoginPage, 
+  RegisterPage, 
+  ProfileSelectionPage, 
   CreateProfilePage,
   EditProfilePage,
   ChatPage,

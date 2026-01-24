@@ -14,11 +14,11 @@ export { ChatPage } from './chat';
 export { QuizListPage, QuizTakePage, GamificationDashboard } from './quiz';
 
 // Admin Pages
-export {
-  AdminDashboardPage,
-  UploadDocumentPage,
-  DocumentsListPage,
-  VectorSearchPage
+export { 
+  AdminDashboardPage, 
+  UploadDocumentPage, 
+  DocumentsListPage, 
+  VectorSearchPage 
 } from './admin';
 
 // Demo Pages (for development/testing)

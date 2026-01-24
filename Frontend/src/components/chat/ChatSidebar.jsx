@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import {
-  Plus,
-  Search,
-  MessageSquare,
+import { 
+  Plus, 
+  Search, 
+  MessageSquare, 
   ChevronLeft,
   Clock,
   BookOpen,
@@ -69,7 +69,7 @@ export default function ChatSidebar({
       groups['Older'].push(conv);
       return groups;
     }
-
+    
     const today = new Date();
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
@@ -97,7 +97,7 @@ export default function ChatSidebar({
     if (!timestamp) return '';
     const date = parseUTCTimestamp(timestamp);
     if (!date || isNaN(date.getTime())) return '';
-
+    
     const now = new Date();
     const diff = now - date;
     const minutes = Math.floor(diff / 60000);
@@ -148,7 +148,7 @@ export default function ChatSidebar({
           {conversations.slice(0, 10).map((conv) => {
             const Icon = getSubjectIcon(conv.subject_tag);
             const isActive = conv._id === activeConversationId || conv.id === activeConversationId;
-
+            
             return (
               <motion.button
                 key={conv._id || conv.id}
@@ -156,8 +156,8 @@ export default function ChatSidebar({
                 onClick={() => onSelectConversation(conv)}
                 className={`
                   w-full p-3 flex items-center justify-center
-                  ${isActive
-                    ? 'bg-violet-500/20 text-violet-300'
+                  ${isActive 
+                    ? 'bg-violet-500/20 text-violet-300' 
                     : 'text-white/60 hover:bg-white/10 hover:text-white'
                   }
                   transition-all
@@ -267,8 +267,8 @@ export default function ChatSidebar({
                         className={`
                           w-full flex items-start gap-3 px-3 py-3 rounded-xl
                           text-left transition-all duration-200
-                          ${isActive
-                            ? 'bg-violet-500/20 border border-violet-500/30'
+                          ${isActive 
+                            ? 'bg-violet-500/20 border border-violet-500/30' 
                             : 'hover:bg-white/10 border border-transparent'
                           }
                         `}
@@ -276,8 +276,8 @@ export default function ChatSidebar({
                         {/* Icon */}
                         <div className={`
                           flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center
-                          ${isActive
-                            ? 'bg-violet-500/30 text-violet-300'
+                          ${isActive 
+                            ? 'bg-violet-500/30 text-violet-300' 
                             : 'bg-white/10 text-white/60'
                           }
                         `}>

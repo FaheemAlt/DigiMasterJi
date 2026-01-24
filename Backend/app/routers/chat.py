@@ -16,7 +16,7 @@ import re
 import json
 
 from app.models.conversation import ConversationCreate, ConversationResponse, ConversationUpdate
-from app.models.message import MessageResponse, MessageCreate, ChatMessageRequest, ChatMessageResponse, AudioTranscriptionResponse
+from app.models.message import MessageResponse, MessageCreate, ChatMessageRequest, ChatMessageResponse, AudioTranscriptionResponse, DiagramData
 from app.database.conversations import ConversationsDatabase
 from app.database.messages import MessagesDatabase
 from app.database.profiles import ProfilesDatabase
@@ -24,6 +24,7 @@ from app.utils.security import decode_access_token
 from app.services.chat_service import chat_service
 from app.services.stt_service import stt_service
 from app.services.tts_service import tts_service, SUPPORTED_LANGUAGES as TTS_SUPPORTED_LANGUAGES
+from app.services.diagram_service import diagram_service
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -546,6 +547,27 @@ async def send_message(
         assistant_msg_id=str(assistant_msg.id)
     )
     
+    # Generate diagram if appropriate and requested
+    diagram_data = None
+    if message.include_diagram:
+        try:
+            diagram_result = diagram_service.generate_diagram(
+                query=message.content,
+                response=ai_result["response"],
+                low_bandwidth=message.low_bandwidth
+            )
+            if diagram_result:
+                diagram_data = DiagramData(
+                    type=diagram_result["type"],
+                    diagram_type=diagram_result["diagram_type"],
+                    content=diagram_result["content"],
+                    title=diagram_result["title"],
+                    size_bytes=diagram_result.get("size_bytes")
+                )
+                logger.info(f"[CHAT] Generated {diagram_result['type']} diagram: {diagram_result['diagram_type']}")
+        except Exception as e:
+            logger.warning(f"[CHAT] Diagram generation failed (non-fatal): {e}")
+    
     return ChatMessageResponse(
         _id=str(assistant_msg.id),
         conversation_id=str(assistant_msg.conversation_id),
@@ -555,7 +577,8 @@ async def send_message(
         audio_base64=audio_base64,
         audio_format=audio_format,
         audio_language=audio_language,
-        audio_language_name=audio_language_name
+        audio_language_name=audio_language_name,
+        diagram=diagram_data
     )
 
 
@@ -573,6 +596,7 @@ async def _stream_response(
     SSE Event Types:
     - token: Individual text tokens as they are generated
     - message_complete: Final message with metadata (id, timestamp)
+    - diagram: Optional diagram data after response completes
     - error: Error information if generation fails
     """
     async def event_generator() -> AsyncGenerator[str, None]:
@@ -622,6 +646,27 @@ async def _stream_response(
                         assistant_msg_id=str(assistant_msg.id)
                     )
                 
+                # Generate diagram if appropriate and requested
+                diagram_data = None
+                if message.include_diagram:
+                    try:
+                        diagram_result = diagram_service.generate_diagram(
+                            query=message.content,
+                            response=full_response.strip(),
+                            low_bandwidth=message.low_bandwidth
+                        )
+                        if diagram_result:
+                            diagram_data = {
+                                "type": diagram_result["type"],
+                                "diagram_type": diagram_result["diagram_type"],
+                                "content": diagram_result["content"],
+                                "title": diagram_result["title"],
+                                "size_bytes": diagram_result.get("size_bytes")
+                            }
+                            logger.info(f"[CHAT STREAM] Generated {diagram_result['type']} diagram: {diagram_result['diagram_type']}")
+                    except Exception as e:
+                        logger.warning(f"[CHAT STREAM] Diagram generation failed (non-fatal): {e}")
+                
                 # Send completion event with message metadata
                 complete_data = json.dumps({
                     "type": "message_complete",
@@ -634,7 +679,8 @@ async def _stream_response(
                         "audio_base64": audio_base64,
                         "audio_format": audio_format,
                         "audio_language": audio_language,
-                        "audio_language_name": audio_language_name
+                        "audio_language_name": audio_language_name,
+                        "diagram": diagram_data
                     }
                 })
                 yield f"data: {complete_data}\n\n"
@@ -673,6 +719,7 @@ async def _stream_response(
                 await ConversationsDatabase.update_conversation_timestamp(conversation_id)
             except Exception as save_err:
                 logger.error(f"[Streaming] Failed to save fallback message: {save_err}")
+            
             
             error_data = json.dumps({
                 "type": "error",

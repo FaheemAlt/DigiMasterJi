@@ -13,7 +13,7 @@ import {
   BookOpen,
 } from 'lucide-react';
 import { ChatSidebar, ChatWindow } from '../../components/chat';
-import { NetworkStatusBadge, OfflineBanner, LowBandwidthToggle } from '../../components/ui';
+import { NetworkStatusBadge, OfflineBanner, LowBandwidthToggle, useLowBandwidthMode } from '../../components/ui';
 import { useProfile } from '../../hooks/useProfile';
 import { useChatService } from '../../hooks/useChatService';
 import { useNetworkStatus } from '../../contexts/NetworkStatusContext';
@@ -28,6 +28,9 @@ export default function ChatPage() {
   const navigate = useNavigate();
   const { activeProfile, isProfileSessionValid, deactivateProfile } = useProfile();
   const { isOnline, isSyncing } = useNetworkStatus();
+  
+  // Low bandwidth mode for diagram generation (ASCII instead of SVG)
+  const { isLowBandwidth } = useLowBandwidthMode();
   
   // Chat service hook - manages all chat state and API calls
   const {
@@ -124,7 +127,12 @@ export default function ChatPage() {
       // Include TTS preference in the message
       const includeAudio = options.includeAudio !== undefined ? options.includeAudio : enableTTS;
       // Use streaming by default for real-time token display
-      await sendMessageStream(content, profileId, { includeAudio });
+      // Pass lowBandwidth flag for ASCII diagrams instead of SVG when data saver is on
+      await sendMessageStream(content, profileId, { 
+        includeAudio,
+        lowBandwidth: isLowBandwidth,
+        includeDiagram: true, // Always request diagrams when appropriate
+      });
     } catch (err) {
       console.error('Error sending message:', err);
     }
@@ -141,6 +149,8 @@ export default function ChatPage() {
         autoSend: true,
         includeAudio,
         slowAudio: false,
+        lowBandwidth: isLowBandwidth,
+        includeDiagram: true,
       });
     } catch (err) {
       console.error('Error sending voice message:', err);

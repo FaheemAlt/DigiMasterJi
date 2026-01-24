@@ -1,8 +1,101 @@
 import { motion } from 'framer-motion';
-import { Bot, User, Copy, Check, Volume2, VolumeX } from 'lucide-react';
+import { Bot, User, Copy, Check, Volume2, VolumeX, Image, FileText } from 'lucide-react';
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import AudioPlayer from './AudioPlayer';
+
+/**
+ * DiagramRenderer Component
+ * Renders SVG diagrams or ASCII art for visual explanations
+ */
+function DiagramRenderer({ diagram }) {
+  const [expanded, setExpanded] = useState(false);
+  
+  if (!diagram || !diagram.content) return null;
+  
+  const isSvg = diagram.type === 'svg';
+  const sizeKb = diagram.size_bytes ? (diagram.size_bytes / 1024).toFixed(1) : null;
+  
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.2, duration: 0.3 }}
+      className="mt-3 pt-3 border-t border-white/10"
+    >
+      {/* Diagram Header */}
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2 text-xs text-white/60">
+          {isSvg ? (
+            <Image className="w-3.5 h-3.5 text-emerald-400" />
+          ) : (
+            <FileText className="w-3.5 h-3.5 text-amber-400" />
+          )}
+          <span className="font-medium">
+            {diagram.title || (isSvg ? 'Visual Diagram' : 'ASCII Diagram')}
+          </span>
+          {sizeKb && (
+            <span className="text-white/40">({sizeKb} KB)</span>
+          )}
+        </div>
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="text-xs text-white/40 hover:text-white/60 transition-colors"
+        >
+          {expanded ? 'Collapse' : 'Expand'}
+        </button>
+      </div>
+      
+      {/* Diagram Content */}
+      <div 
+        className={`
+          overflow-hidden rounded-lg transition-all duration-300
+          ${expanded ? 'max-h-[600px]' : 'max-h-[200px]'}
+        `}
+      >
+        {isSvg ? (
+          // SVG Diagram - render inline
+          <div 
+            className="bg-white/5 rounded-lg p-2 overflow-auto"
+            dangerouslySetInnerHTML={{ __html: diagram.content }}
+            style={{
+              // Ensure SVG scales properly
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+            }}
+          />
+        ) : (
+          // ASCII Art - render in pre tag
+          <pre 
+            className="bg-gray-900/50 rounded-lg p-3 text-xs font-mono text-emerald-300 overflow-auto whitespace-pre"
+            style={{
+              lineHeight: '1.2',
+              letterSpacing: '0.05em',
+            }}
+          >
+            {diagram.content}
+          </pre>
+        )}
+      </div>
+      
+      {/* Diagram Type Badge */}
+      {diagram.diagram_type && (
+        <div className="mt-2 flex items-center gap-1">
+          <span className={`
+            text-[10px] px-2 py-0.5 rounded-full font-medium
+            ${isSvg 
+              ? 'bg-emerald-500/20 text-emerald-300' 
+              : 'bg-amber-500/20 text-amber-300'
+            }
+          `}>
+            {diagram.diagram_type.replace('_', ' ').toUpperCase()}
+          </span>
+        </div>
+      )}
+    </motion.div>
+  );
+}
 
 /**
  * MessageBubble Component
@@ -150,6 +243,11 @@ export default function MessageBubble({
                 {message.content_translated}
               </p>
             </div>
+          )}
+
+          {/* Diagram (SVG or ASCII art) - for visual learning */}
+          {!isUser && !isTyping && message.diagram && (
+            <DiagramRenderer diagram={message.diagram} />
           )}
         </div>
 

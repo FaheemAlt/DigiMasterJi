@@ -60,6 +60,8 @@ class ChatMessageRequest(BaseModel):
     include_audio: bool = Field(default=False, description="Whether to include TTS audio in response")
     slow_audio: bool = Field(default=False, description="Whether to speak slowly (useful for learning)")
     stream: bool = Field(default=False, description="Whether to stream the response via SSE")
+    low_bandwidth: bool = Field(default=False, description="Low bandwidth mode - uses ASCII diagrams instead of SVG")
+    include_diagram: bool = Field(default=True, description="Whether to include visual diagrams when appropriate")
     
     class Config:
         json_schema_extra = {
@@ -67,7 +69,29 @@ class ChatMessageRequest(BaseModel):
                 "content": "Photosynthesis kya hai? Mujhe simple Hindi mein samjhao.",
                 "include_audio": True,
                 "slow_audio": False,
-                "stream": True
+                "stream": True,
+                "low_bandwidth": False,
+                "include_diagram": True
+            }
+        }
+
+
+class DiagramData(BaseModel):
+    """Schema for visual diagram data (SVG or ASCII art)."""
+    type: str = Field(..., description="Diagram format: 'svg' or 'ascii'")
+    diagram_type: str = Field(..., description="Type of diagram: 'process', 'cycle', 'structure', etc.")
+    content: str = Field(..., description="SVG markup or ASCII art content")
+    title: str = Field(..., description="Diagram title")
+    size_bytes: Optional[int] = Field(None, description="Size in bytes (for SVG)")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "type": "svg",
+                "diagram_type": "process",
+                "content": "<svg>...</svg>",
+                "title": "Photosynthesis Process",
+                "size_bytes": 4500
             }
         }
 
@@ -87,6 +111,8 @@ class ChatMessageResponse(BaseModel):
     audio_format: Optional[str] = Field(None, description="Audio format (e.g., 'mp3')")
     audio_language: Optional[str] = Field(None, description="Language code used for TTS")
     audio_language_name: Optional[str] = Field(None, description="Human-readable language name")
+    # Optional diagram for visual learners
+    diagram: Optional[DiagramData] = Field(None, description="Visual diagram (SVG or ASCII art) for the explanation")
     
     class Config:
         populate_by_name = True

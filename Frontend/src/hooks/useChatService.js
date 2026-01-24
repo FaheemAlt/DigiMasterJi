@@ -227,13 +227,18 @@ export function useChatService() {
    * Send a message and get AI response
    * @param {string} content - The message content
    * @param {string} profileId - The profile ID (required if no active conversation)
-   * @param {Object} options - { includeAudio?: boolean, slowAudio?: boolean }
+   * @param {Object} options - { includeAudio?: boolean, slowAudio?: boolean, lowBandwidth?: boolean, includeDiagram?: boolean }
    * @returns {Object} - The AI response message
    */
   const sendMessage = useCallback(async (content, profileId = null, options = {}) => {
     if (!content?.trim()) return null;
 
-    const { includeAudio = false, slowAudio = false } = options;
+    const { 
+      includeAudio = false, 
+      slowAudio = false,
+      lowBandwidth = false, // Use ASCII art instead of SVG for diagrams
+      includeDiagram = true, // Include visual diagrams when appropriate
+    } = options;
 
     setError(null);
     let conversationId = activeConversation?._id || activeConversation?.id;
@@ -280,6 +285,8 @@ export function useChatService() {
         content: content.trim(),
         include_audio: includeAudio,
         slow_audio: slowAudio,
+        low_bandwidth: lowBandwidth,
+        include_diagram: includeDiagram,
       });
       const aiResponse = response.data;
 
@@ -378,13 +385,18 @@ export function useChatService() {
    * Send a message and get AI response with streaming (tokens appear as they're generated)
    * @param {string} content - The message content
    * @param {string} profileId - The profile ID (required if no active conversation)
-   * @param {Object} options - { includeAudio?: boolean, slowAudio?: boolean }
+   * @param {Object} options - { includeAudio?: boolean, slowAudio?: boolean, lowBandwidth?: boolean, includeDiagram?: boolean }
    * @returns {Object} - The AI response message (after streaming completes)
    */
   const sendMessageStream = useCallback(async (content, profileId = null, options = {}) => {
     if (!content?.trim()) return null;
 
-    const { includeAudio = false, slowAudio = false } = options;
+    const { 
+      includeAudio = false, 
+      slowAudio = false,
+      lowBandwidth = false, // Use ASCII art instead of SVG for diagrams
+      includeDiagram = true, // Include visual diagrams when appropriate
+    } = options;
 
     setError(null);
     let conversationId = activeConversation?._id || activeConversation?.id;
@@ -445,6 +457,8 @@ export function useChatService() {
           content: content.trim(),
           include_audio: includeAudio,
           slow_audio: slowAudio,
+          low_bandwidth: lowBandwidth,
+          include_diagram: includeDiagram,
         },
         {
           // Called for each token
@@ -563,7 +577,7 @@ export function useChatService() {
    * Upload audio for transcription (STT) and optionally send as message
    * @param {Blob} audioBlob - The recorded audio blob
    * @param {string} profileId - The profile ID (required if no active conversation)
-   * @param {Object} options - { autoSend?: boolean, includeAudio?: boolean, slowAudio?: boolean }
+   * @param {Object} options - { autoSend?: boolean, includeAudio?: boolean, slowAudio?: boolean, lowBandwidth?: boolean, includeDiagram?: boolean }
    * @returns {Object} - { transcribedText, aiResponse? }
    */
   const sendVoiceMessage = useCallback(async (audioBlob, profileId = null, options = {}) => {
@@ -571,6 +585,8 @@ export function useChatService() {
       autoSend = true, // Automatically send transcribed text to AI
       includeAudio = true, // Include TTS in AI response
       slowAudio = false, // Slow down TTS for learning
+      lowBandwidth = false, // Use ASCII art instead of SVG for diagrams
+      includeDiagram = true, // Include visual diagrams when appropriate
     } = options;
 
     if (!audioBlob) {
@@ -663,6 +679,8 @@ export function useChatService() {
             content: transcribedText,
             include_audio: includeAudio,
             slow_audio: slowAudio,
+            low_bandwidth: lowBandwidth,
+            include_diagram: includeDiagram,
           },
           {
             // Called for each token

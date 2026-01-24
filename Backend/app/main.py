@@ -29,3 +29,40 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(profiles.router)
 app.include_router(chat.router)
+
+
+app.include_router(quizzes.router)
+
+# Initialize Quiz Scheduler
+quiz_scheduler = QuizScheduler()
+
+# Startup and Shutdown Events
+@app.on_event("startup")
+async def startup_db_client():
+    await connect_to_mongo()
+    # Start quiz scheduler
+    logger.info("[STARTUP] Starting Quiz Scheduler...")
+    quiz_scheduler.start()
+
+@app.on_event("shutdown")
+async def shutdown_db_client():
+    await close_mongo_connection()
+    # Shutdown quiz scheduler
+    logger.info("[SHUTDOWN] Stopping Quiz Scheduler...")
+    quiz_scheduler.shutdown()
+
+# Health Check Endpoint
+@app.get("/", tags=["Health"])
+async def root():
+    return {
+        "status": "ok",
+        "message": "DigiMasterji Backend API is running",
+        "version": "1.0.0"
+    }
+
+@app.get("/health", tags=["Health"])
+async def health_check():
+    return {
+        "status": "healthy",
+        "database": "connected"
+    }

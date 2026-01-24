@@ -9,7 +9,7 @@ import AudioPlayer from './AudioPlayer';
  * Renders SVG diagrams or ASCII art for visual explanations
  */
 function DiagramRenderer({ diagram }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true); // Default to expanded for better visibility
   
   if (!diagram || !diagram.content) return null;
   
@@ -21,75 +21,84 @@ function DiagramRenderer({ diagram }) {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.2, duration: 0.3 }}
-      className="mt-3 pt-3 border-t border-white/10"
+      className="mt-4 pt-4 border-t border-white/10"
     >
       {/* Diagram Header */}
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2 text-xs text-white/60">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2 text-sm text-white/70">
           {isSvg ? (
-            <Image className="w-3.5 h-3.5 text-emerald-400" />
+            <Image className="w-4 h-4 text-emerald-400" />
           ) : (
-            <FileText className="w-3.5 h-3.5 text-amber-400" />
+            <FileText className="w-4 h-4 text-amber-400" />
           )}
           <span className="font-medium">
-            {diagram.title || (isSvg ? 'Visual Diagram' : 'ASCII Diagram')}
+            {diagram.title || (isSvg ? '📊 Visual Diagram' : '📝 ASCII Diagram')}
           </span>
           {sizeKb && (
-            <span className="text-white/40">({sizeKb} KB)</span>
+            <span className="text-white/40 text-xs">({sizeKb} KB)</span>
           )}
         </div>
         <button
           onClick={() => setExpanded(!expanded)}
-          className="text-xs text-white/40 hover:text-white/60 transition-colors"
+          className="text-xs px-2 py-1 rounded-md bg-white/10 text-white/50 hover:text-white/80 hover:bg-white/20 transition-colors"
         >
-          {expanded ? 'Collapse' : 'Expand'}
+          {expanded ? '⬆ Collapse' : '⬇ Expand'}
         </button>
       </div>
       
       {/* Diagram Content */}
-      <div 
-        className={`
-          overflow-hidden rounded-lg transition-all duration-300
-          ${expanded ? 'max-h-[600px]' : 'max-h-[200px]'}
-        `}
+      <motion.div 
+        initial={false}
+        animate={{ 
+          height: expanded ? 'auto' : '100px',
+          opacity: expanded ? 1 : 0.7
+        }}
+        transition={{ duration: 0.3 }}
+        className="overflow-hidden rounded-xl"
       >
         {isSvg ? (
-          // SVG Diagram - render inline
+          // SVG Diagram - render inline with better sizing
           <div 
-            className="bg-white/5 rounded-lg p-2 overflow-auto"
+            className="bg-slate-900/60 rounded-xl p-4 overflow-auto border border-white/5"
             dangerouslySetInnerHTML={{ __html: diagram.content }}
             style={{
-              // Ensure SVG scales properly
               display: 'flex',
               justifyContent: 'center',
-              alignItems: 'center',
+              alignItems: 'flex-start',
+              minHeight: expanded ? '200px' : '100px',
+              maxHeight: expanded ? '800px' : '100px',
             }}
           />
         ) : (
-          // ASCII Art - render in pre tag
+          // ASCII Art - render in pre tag with better styling
           <pre 
-            className="bg-gray-900/50 rounded-lg p-3 text-xs font-mono text-emerald-300 overflow-auto whitespace-pre"
+            className="bg-slate-900/60 rounded-xl p-4 text-sm font-mono text-emerald-300 overflow-auto whitespace-pre border border-white/5"
             style={{
-              lineHeight: '1.2',
-              letterSpacing: '0.05em',
+              lineHeight: '1.4',
+              letterSpacing: '0.02em',
+              minHeight: expanded ? '150px' : '100px',
+              maxHeight: expanded ? '600px' : '100px',
             }}
           >
             {diagram.content}
           </pre>
         )}
-      </div>
+      </motion.div>
       
       {/* Diagram Type Badge */}
       {diagram.diagram_type && (
-        <div className="mt-2 flex items-center gap-1">
+        <div className="mt-3 flex items-center gap-2">
           <span className={`
-            text-[10px] px-2 py-0.5 rounded-full font-medium
+            text-xs px-3 py-1 rounded-full font-medium
             ${isSvg 
-              ? 'bg-emerald-500/20 text-emerald-300' 
-              : 'bg-amber-500/20 text-amber-300'
+              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' 
+              : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
             }
           `}>
             {diagram.diagram_type.replace('_', ' ').toUpperCase()}
+          </span>
+          <span className="text-xs text-white/40">
+            {isSvg ? 'Interactive visual' : 'Low-bandwidth mode'}
           </span>
         </div>
       )}

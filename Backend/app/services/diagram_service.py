@@ -158,61 +158,81 @@ def generate_svg_diagram(
 
 
 def _generate_process_svg(title: str, steps: list, colors: Dict[str, str]) -> str:
-    """Generate a horizontal process/steps diagram."""
-    num_steps = min(len(steps), 6)  # Max 6 steps for clarity
+    """Generate a horizontal process/steps diagram with larger, more readable boxes."""
+    num_steps = min(len(steps), 5)  # Max 5 steps for horizontal layout
     if num_steps == 0:
         return ""
     
-    width = 100 + num_steps * 140
-    height = 160
+    # Larger dimensions for better readability
+    step_width = 160
+    step_height = 100
+    gap = 50
+    
+    width = 80 + num_steps * step_width + (num_steps - 1) * gap
+    height = 220
     
     svg_parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" width="{width}" height="{height}">',
-        f'<rect width="100%" height="100%" fill="{colors["background"]}" rx="8"/>',
-        f'<text x="{width/2}" y="25" text-anchor="middle" fill="{colors["text"]}" font-size="14" font-weight="bold">{_escape_xml(title)}</text>',
+        f'<rect width="100%" height="100%" fill="{colors["background"]}" rx="12"/>',
+        f'<text x="{width/2}" y="32" text-anchor="middle" fill="{colors["text"]}" font-size="18" font-weight="bold">{_escape_xml(title)}</text>',
     ]
     
-    # Draw steps
-    step_width = 100
-    gap = 40
-    start_x = 50
-    y = 70
+    start_x = 40
+    y = 60
     
     for i, step in enumerate(steps[:num_steps]):
         x = start_x + i * (step_width + gap)
         
-        # Step box
+        # Step box with subtle gradient effect
         svg_parts.append(
-            f'<rect x="{x}" y="{y}" width="{step_width}" height="60" rx="8" '
-            f'fill="{colors["primary"]}" opacity="0.9"/>'
+            f'<rect x="{x}" y="{y}" width="{step_width}" height="{step_height}" rx="12" '
+            f'fill="{colors["primary"]}" stroke="{colors["border"]}" stroke-width="2"/>'
         )
         
-        # Step number
+        # Highlight effect
         svg_parts.append(
-            f'<circle cx="{x + 15}" cy="{y + 15}" r="10" fill="{colors["secondary"]}"/>'
-            f'<text x="{x + 15}" y="{y + 19}" text-anchor="middle" fill="{colors["text"]}" font-size="10" font-weight="bold">{i + 1}</text>'
+            f'<rect x="{x + 2}" y="{y + 2}" width="{step_width - 4}" height="20" rx="10" '
+            f'fill="white" opacity="0.1"/>'
         )
         
-        # Step text (wrapped)
-        wrapped_text = _wrap_text(str(step), 12)
-        for j, line in enumerate(wrapped_text[:2]):  # Max 2 lines
+        # Step number badge
+        svg_parts.append(
+            f'<circle cx="{x + 20}" cy="{y + 20}" r="14" fill="{colors["secondary"]}" stroke="{colors["border"]}" stroke-width="1"/>'
+            f'<text x="{x + 20}" y="{y + 25}" text-anchor="middle" fill="{colors["text"]}" font-size="12" font-weight="bold">{i + 1}</text>'
+        )
+        
+        # Step text (wrapped to multiple lines)
+        step_text = str(step)
+        wrapped_text = _wrap_text(step_text, 18)  # Characters per line
+        
+        # Center text block
+        num_lines = min(len(wrapped_text), 4)
+        line_height = 16
+        text_start_y = y + 50
+        
+        for j, line in enumerate(wrapped_text[:4]):  # Up to 4 lines
+            clean_line = line.replace("**", "")
+            font_size = 12 if j == 0 else 11
             svg_parts.append(
-                f'<text x="{x + 50}" y="{y + 35 + j * 14}" text-anchor="middle" '
-                f'fill="{colors["text"]}" font-size="10">{_escape_xml(line)}</text>'
+                f'<text x="{x + step_width/2}" y="{text_start_y + j * line_height}" text-anchor="middle" '
+                f'fill="{colors["text"]}" font-size="{font_size}">{_escape_xml(clean_line)}</text>'
             )
         
         # Arrow to next step
         if i < num_steps - 1:
-            arrow_x = x + step_width + 5
+            arrow_x_start = x + step_width + 8
+            arrow_x_end = arrow_x_start + gap - 16
+            arrow_y = y + step_height / 2
+            
             svg_parts.append(
-                f'<path d="M{arrow_x},{y + 30} L{arrow_x + 30},{y + 30}" '
-                f'stroke="{colors["accent"]}" stroke-width="2" marker-end="url(#arrowhead)"/>'
+                f'<path d="M{arrow_x_start},{arrow_y} L{arrow_x_end},{arrow_y}" '
+                f'stroke="{colors["accent"]}" stroke-width="3" marker-end="url(#arrowhead)"/>'
             )
     
-    # Arrow marker definition
+    # Larger arrow marker
     svg_parts.append(
-        f'<defs><marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">'
-        f'<polygon points="0 0, 10 3.5, 0 7" fill="{colors["accent"]}"/></marker></defs>'
+        f'<defs><marker id="arrowhead" markerWidth="12" markerHeight="9" refX="10" refY="4.5" orient="auto">'
+        f'<polygon points="0 0, 12 4.5, 0 9" fill="{colors["accent"]}"/></marker></defs>'
     )
     
     svg_parts.append('</svg>')
@@ -220,60 +240,76 @@ def _generate_process_svg(title: str, steps: list, colors: Dict[str, str]) -> st
 
 
 def _generate_cycle_svg(title: str, steps: list, colors: Dict[str, str]) -> str:
-    """Generate a circular cycle diagram."""
+    """Generate a circular cycle diagram with larger, more readable nodes."""
     num_steps = min(len(steps), 6)
     if num_steps == 0:
         return ""
     
-    size = 300
-    center_x, center_y = size / 2, size / 2 + 10
-    radius = 90
+    # Larger size for better readability
+    size = 480
+    center_x, center_y = size / 2, size / 2 + 20
+    radius = 150  # Larger radius for bigger nodes
     
     svg_parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {size} {size}" width="{size}" height="{size}">',
-        f'<rect width="100%" height="100%" fill="{colors["background"]}" rx="8"/>',
-        f'<text x="{center_x}" y="25" text-anchor="middle" fill="{colors["text"]}" font-size="14" font-weight="bold">{_escape_xml(title)}</text>',
+        f'<rect width="100%" height="100%" fill="{colors["background"]}" rx="12"/>',
+        f'<text x="{center_x}" y="35" text-anchor="middle" fill="{colors["text"]}" font-size="18" font-weight="bold">{_escape_xml(title)}</text>',
     ]
     
     import math
     angle_step = 2 * math.pi / num_steps
+    node_radius = 55  # Larger nodes
     
     for i, step in enumerate(steps[:num_steps]):
         angle = -math.pi / 2 + i * angle_step  # Start from top
         x = center_x + radius * math.cos(angle)
         y = center_y + radius * math.sin(angle)
         
-        # Node circle
+        # Node circle with border
         svg_parts.append(
-            f'<circle cx="{x}" cy="{y}" r="35" fill="{colors["primary"]}" stroke="{colors["border"]}" stroke-width="2"/>'
+            f'<circle cx="{x}" cy="{y}" r="{node_radius}" fill="{colors["primary"]}" stroke="{colors["border"]}" stroke-width="2"/>'
         )
         
-        # Step text
-        wrapped = _wrap_text(str(step), 10)
-        for j, line in enumerate(wrapped[:2]):
+        # Highlight effect
+        svg_parts.append(
+            f'<circle cx="{x}" cy="{y - 15}" r="{node_radius - 10}" fill="white" opacity="0.08"/>'
+        )
+        
+        # Step number
+        svg_parts.append(
+            f'<text x="{x}" y="{y - 20}" text-anchor="middle" fill="{colors["accent"]}" font-size="14" font-weight="bold">Step {i + 1}</text>'
+        )
+        
+        # Step text (wrapped, more lines)
+        step_text = str(step).replace("**", "")
+        wrapped = _wrap_text(step_text, 14)  # More chars per line
+        for j, line in enumerate(wrapped[:3]):  # Up to 3 lines
             svg_parts.append(
-                f'<text x="{x}" y="{y + (j - 0.5) * 12}" text-anchor="middle" '
-                f'fill="{colors["text"]}" font-size="9">{_escape_xml(line)}</text>'
+                f'<text x="{x}" y="{y + 2 + j * 15}" text-anchor="middle" '
+                f'fill="{colors["text"]}" font-size="11">{_escape_xml(line)}</text>'
             )
         
         # Arrow to next
         if num_steps > 1:
             next_angle = -math.pi / 2 + ((i + 1) % num_steps) * angle_step
-            arrow_start_x = center_x + (radius + 40) * math.cos(angle + angle_step * 0.3)
-            arrow_start_y = center_y + (radius + 40) * math.sin(angle + angle_step * 0.3)
-            arrow_end_x = center_x + (radius + 40) * math.cos(next_angle - angle_step * 0.3)
-            arrow_end_y = center_y + (radius + 40) * math.sin(next_angle - angle_step * 0.3)
+            arrow_radius = radius + node_radius + 15
+            arrow_start_x = center_x + arrow_radius * math.cos(angle + angle_step * 0.25)
+            arrow_start_y = center_y + arrow_radius * math.sin(angle + angle_step * 0.25)
+            arrow_end_x = center_x + arrow_radius * math.cos(next_angle - angle_step * 0.25)
+            arrow_end_y = center_y + arrow_radius * math.sin(next_angle - angle_step * 0.25)
             
             # Curved arrow
+            ctrl_x = center_x + (arrow_radius + 30) * math.cos(angle + angle_step * 0.5)
+            ctrl_y = center_y + (arrow_radius + 30) * math.sin(angle + angle_step * 0.5)
             svg_parts.append(
-                f'<path d="M{arrow_start_x},{arrow_start_y} Q{center_x + (radius + 60) * math.cos(angle + angle_step * 0.5)},{center_y + (radius + 60) * math.sin(angle + angle_step * 0.5)} {arrow_end_x},{arrow_end_y}" '
-                f'fill="none" stroke="{colors["accent"]}" stroke-width="2" marker-end="url(#arrowhead)"/>'
+                f'<path d="M{arrow_start_x},{arrow_start_y} Q{ctrl_x},{ctrl_y} {arrow_end_x},{arrow_end_y}" '
+                f'fill="none" stroke="{colors["accent"]}" stroke-width="3" marker-end="url(#arrowhead)"/>'
             )
     
-    # Arrow marker
+    # Larger arrow marker
     svg_parts.append(
-        f'<defs><marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">'
-        f'<polygon points="0 0, 10 3.5, 0 7" fill="{colors["accent"]}"/></marker></defs>'
+        f'<defs><marker id="arrowhead" markerWidth="12" markerHeight="9" refX="10" refY="4.5" orient="auto">'
+        f'<polygon points="0 0, 12 4.5, 0 9" fill="{colors["accent"]}"/></marker></defs>'
     )
     
     svg_parts.append('</svg>')
@@ -281,125 +317,158 @@ def _generate_cycle_svg(title: str, steps: list, colors: Dict[str, str]) -> str:
 
 
 def _generate_structure_svg(title: str, parts: list, colors: Dict[str, str]) -> str:
-    """Generate a labeled structure diagram."""
+    """Generate a labeled structure diagram with larger, more readable sections."""
     num_parts = min(len(parts), 8)
     if num_parts == 0:
         return ""
     
-    width = 350
-    height = 50 + num_parts * 40
+    # Larger dimensions
+    width = 500
+    row_height = 60
+    header_height = 60
+    height = header_height + num_parts * row_height + 20
     
     svg_parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" width="{width}" height="{height}">',
-        f'<rect width="100%" height="100%" fill="{colors["background"]}" rx="8"/>',
-        f'<text x="{width/2}" y="25" text-anchor="middle" fill="{colors["text"]}" font-size="14" font-weight="bold">{_escape_xml(title)}</text>',
+        f'<rect width="100%" height="100%" fill="{colors["background"]}" rx="12"/>',
+        f'<text x="{width/2}" y="38" text-anchor="middle" fill="{colors["text"]}" font-size="18" font-weight="bold">{_escape_xml(title)}</text>',
     ]
     
-    y = 45
+    y = header_height
     for i, part in enumerate(parts[:num_parts]):
         # Alternating colors
         fill = colors["primary"] if i % 2 == 0 else colors["secondary"]
         
+        # Row background
         svg_parts.append(
-            f'<rect x="20" y="{y}" width="{width - 40}" height="32" rx="6" fill="{fill}" opacity="0.85"/>'
+            f'<rect x="25" y="{y}" width="{width - 50}" height="{row_height - 8}" rx="10" fill="{fill}" stroke="{colors["border"]}" stroke-width="1"/>'
         )
+        
+        # Number badge
         svg_parts.append(
-            f'<text x="{width/2}" y="{y + 21}" text-anchor="middle" fill="{colors["text"]}" font-size="11">{_escape_xml(str(part))}</text>'
+            f'<circle cx="55" cy="{y + (row_height - 8) / 2}" r="14" fill="{colors["accent"]}"/>'
+            f'<text x="55" y="{y + (row_height - 8) / 2 + 5}" text-anchor="middle" fill="{colors["text"]}" font-size="12" font-weight="bold">{i + 1}</text>'
         )
-        y += 38
+        
+        # Part text (wrapped if needed)
+        part_text = str(part).replace("**", "")
+        wrapped = _wrap_text(part_text, 50)
+        for j, line in enumerate(wrapped[:2]):
+            svg_parts.append(
+                f'<text x="85" y="{y + 25 + j * 18}" fill="{colors["text"]}" font-size="13">{_escape_xml(line)}</text>'
+            )
+        
+        y += row_height
     
     svg_parts.append('</svg>')
     return '\n'.join(svg_parts)
 
 
 def _generate_comparison_svg(title: str, items: list, colors: Dict[str, str]) -> str:
-    """Generate a side-by-side comparison diagram."""
+    """Generate a side-by-side comparison diagram with larger boxes and more features."""
     if len(items) < 2:
         return ""
     
-    width = 400
-    height = 200
+    # Larger dimensions
+    width = 580
+    height = 350
     
     item1, item2 = items[0], items[1]
+    box_width = 220
+    box_height = 260
     
     svg_parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" width="{width}" height="{height}">',
-        f'<rect width="100%" height="100%" fill="{colors["background"]}" rx="8"/>',
-        f'<text x="{width/2}" y="25" text-anchor="middle" fill="{colors["text"]}" font-size="14" font-weight="bold">{_escape_xml(title)}</text>',
+        f'<rect width="100%" height="100%" fill="{colors["background"]}" rx="12"/>',
+        f'<text x="{width/2}" y="35" text-anchor="middle" fill="{colors["text"]}" font-size="18" font-weight="bold">{_escape_xml(title)}</text>',
         
         # Left box
-        f'<rect x="20" y="45" width="160" height="140" rx="8" fill="{colors["primary"]}" opacity="0.9"/>',
-        f'<text x="100" y="75" text-anchor="middle" fill="{colors["text"]}" font-size="12" font-weight="bold">{_escape_xml(str(item1.get("name", "Item 1")))}</text>',
+        f'<rect x="30" y="55" width="{box_width}" height="{box_height}" rx="12" fill="{colors["primary"]}" stroke="{colors["border"]}" stroke-width="2"/>',
+        f'<rect x="32" y="57" width="{box_width - 4}" height="25" rx="10" fill="white" opacity="0.1"/>',
+        f'<text x="{30 + box_width/2}" y="85" text-anchor="middle" fill="{colors["text"]}" font-size="15" font-weight="bold">{_escape_xml(str(item1.get("name", "Item 1")))}</text>',
         
-        # Right box
-        f'<rect x="220" y="45" width="160" height="140" rx="8" fill="{colors["secondary"]}" opacity="0.9"/>',
-        f'<text x="300" y="75" text-anchor="middle" fill="{colors["text"]}" font-size="12" font-weight="bold">{_escape_xml(str(item2.get("name", "Item 2")))}</text>',
+        # Right box  
+        f'<rect x="{width - 30 - box_width}" y="55" width="{box_width}" height="{box_height}" rx="12" fill="{colors["secondary"]}" stroke="{colors["border"]}" stroke-width="2"/>',
+        f'<rect x="{width - 28 - box_width}" y="57" width="{box_width - 4}" height="25" rx="10" fill="white" opacity="0.1"/>',
+        f'<text x="{width - 30 - box_width/2}" y="85" text-anchor="middle" fill="{colors["text"]}" font-size="15" font-weight="bold">{_escape_xml(str(item2.get("name", "Item 2")))}</text>',
         
-        # VS circle
-        f'<circle cx="200" cy="115" r="20" fill="{colors["accent"]}"/>',
-        f'<text x="200" y="120" text-anchor="middle" fill="{colors["text"]}" font-size="12" font-weight="bold">VS</text>',
+        # VS badge in center
+        f'<circle cx="{width/2}" cy="180" r="28" fill="{colors["accent"]}" stroke="{colors["border"]}" stroke-width="2"/>',
+        f'<text x="{width/2}" y="186" text-anchor="middle" fill="{colors["text"]}" font-size="14" font-weight="bold">VS</text>',
     ]
     
-    # Add features for each item
-    y = 95
-    for feature in item1.get("features", [])[:3]:
+    # Add features for item 1
+    y = 115
+    for idx, feature in enumerate(item1.get("features", [])[:6]):
+        feature_text = str(feature).replace("**", "")[:35]
         svg_parts.append(
-            f'<text x="100" y="{y}" text-anchor="middle" fill="{colors["text"]}" font-size="10">• {_escape_xml(str(feature))}</text>'
+            f'<text x="50" y="{y}" fill="{colors["text"]}" font-size="12">• {_escape_xml(feature_text)}</text>'
         )
-        y += 20
+        y += 25
     
-    y = 95
-    for feature in item2.get("features", [])[:3]:
+    # Add features for item 2
+    y = 115
+    for idx, feature in enumerate(item2.get("features", [])[:6]):
+        feature_text = str(feature).replace("**", "")[:35]
         svg_parts.append(
-            f'<text x="300" y="{y}" text-anchor="middle" fill="{colors["text"]}" font-size="10">• {_escape_xml(str(feature))}</text>'
+            f'<text x="{width - 30 - box_width + 20}" y="{y}" fill="{colors["text"]}" font-size="12">• {_escape_xml(feature_text)}</text>'
         )
-        y += 20
+        y += 25
     
     svg_parts.append('</svg>')
     return '\n'.join(svg_parts)
 
 
 def _generate_hierarchy_svg(title: str, items: list, colors: Dict[str, str]) -> str:
-    """Generate a tree/hierarchy diagram."""
+    """Generate a tree/hierarchy diagram with larger nodes and better layout."""
     if not items:
         return ""
     
-    width = 400
-    height = 180
+    # Larger dimensions
+    width = 600
+    height = 320
     
     svg_parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" width="{width}" height="{height}">',
-        f'<rect width="100%" height="100%" fill="{colors["background"]}" rx="8"/>',
+        f'<rect width="100%" height="100%" fill="{colors["background"]}" rx="12"/>',
         
-        # Root node
-        f'<rect x="{width/2 - 60}" y="20" width="120" height="35" rx="6" fill="{colors["primary"]}"/>',
-        f'<text x="{width/2}" y="43" text-anchor="middle" fill="{colors["text"]}" font-size="11" font-weight="bold">{_escape_xml(title)}</text>',
+        # Root node (title)
+        f'<rect x="{width/2 - 100}" y="25" width="200" height="55" rx="12" fill="{colors["primary"]}" stroke="{colors["border"]}" stroke-width="2"/>',
+        f'<rect x="{width/2 - 98}" y="27" width="196" height="18" rx="10" fill="white" opacity="0.1"/>',
+        f'<text x="{width/2}" y="58" text-anchor="middle" fill="{colors["text"]}" font-size="15" font-weight="bold">{_escape_xml(title)}</text>',
     ]
     
     # Child nodes
     num_children = min(len(items), 4)
-    child_width = 80
-    total_width = num_children * child_width + (num_children - 1) * 20
+    child_width = 120
+    child_height = 100
+    gap = 25
+    total_width = num_children * child_width + (num_children - 1) * gap
     start_x = (width - total_width) / 2
     
     for i, item in enumerate(items[:num_children]):
-        x = start_x + i * (child_width + 20)
+        x = start_x + i * (child_width + gap)
         
-        # Connecting line
+        # Connecting line from root to child
         svg_parts.append(
-            f'<line x1="{width/2}" y1="55" x2="{x + child_width/2}" y2="90" stroke="{colors["accent"]}" stroke-width="2"/>'
+            f'<line x1="{width/2}" y1="80" x2="{x + child_width/2}" y2="130" stroke="{colors["accent"]}" stroke-width="3"/>'
         )
         
         # Child box
         svg_parts.append(
-            f'<rect x="{x}" y="90" width="{child_width}" height="70" rx="6" fill="{colors["secondary"]}" opacity="0.9"/>'
+            f'<rect x="{x}" y="130" width="{child_width}" height="{child_height}" rx="10" fill="{colors["secondary"]}" stroke="{colors["border"]}" stroke-width="2"/>'
+        )
+        svg_parts.append(
+            f'<rect x="{x + 2}" y="132" width="{child_width - 4}" height="18" rx="8" fill="white" opacity="0.1"/>'
         )
         
-        # Child text
-        wrapped = _wrap_text(str(item), 10)
-        for j, line in enumerate(wrapped[:3]):
+        # Child text (wrapped)
+        item_text = str(item).replace("**", "")
+        wrapped = _wrap_text(item_text, 14)
+        for j, line in enumerate(wrapped[:5]):
+            font_size = 12 if j == 0 else 11
             svg_parts.append(
-                f'<text x="{x + child_width/2}" y="{110 + j * 14}" text-anchor="middle" fill="{colors["text"]}" font-size="9">{_escape_xml(line)}</text>'
+                f'<text x="{x + child_width/2}" y="{155 + j * 16}" text-anchor="middle" fill="{colors["text"]}" font-size="{font_size}">{_escape_xml(line)}</text>'
             )
     
     svg_parts.append('</svg>')
@@ -407,54 +476,80 @@ def _generate_hierarchy_svg(title: str, items: list, colors: Dict[str, str]) -> 
 
 
 def _generate_flowchart_svg(title: str, steps: list, colors: Dict[str, str]) -> str:
-    """Generate a vertical flowchart."""
-    num_steps = min(len(steps), 5)
+    """Generate a vertical flowchart with larger, more readable boxes."""
+    num_steps = min(len(steps), 6)
     if num_steps == 0:
         return ""
     
-    width = 300
-    height = 80 + num_steps * 70
+    # Much larger dimensions for better readability
+    width = 500
+    box_width = 400
+    box_height = 80  # Taller boxes for more text
+    spacing = 30  # Space between boxes for arrows
+    header_height = 50
+    
+    # Calculate dynamic height based on number of steps
+    height = header_height + num_steps * (box_height + spacing) + 20
     
     svg_parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" width="{width}" height="{height}">',
-        f'<rect width="100%" height="100%" fill="{colors["background"]}" rx="8"/>',
-        f'<text x="{width/2}" y="25" text-anchor="middle" fill="{colors["text"]}" font-size="14" font-weight="bold">{_escape_xml(title)}</text>',
+        f'<rect width="100%" height="100%" fill="{colors["background"]}" rx="12"/>',
+        f'<text x="{width/2}" y="32" text-anchor="middle" fill="{colors["text"]}" font-size="18" font-weight="bold">{_escape_xml(title)}</text>',
     ]
     
-    y = 45
-    box_width = 200
-    box_height = 45
+    y = header_height
     x = (width - box_width) / 2
     
     for i, step in enumerate(steps[:num_steps]):
-        # Box (rounded for start/end, rectangle for middle)
-        rx = 20 if i == 0 or i == num_steps - 1 else 6
+        # Box shape: rounded pill for start/end, rounded rect for middle
+        rx = 25 if i == 0 or i == num_steps - 1 else 10
+        
+        # Box with gradient-like effect (slightly lighter top)
         svg_parts.append(
             f'<rect x="{x}" y="{y}" width="{box_width}" height="{box_height}" rx="{rx}" '
             f'fill="{colors["primary"]}" stroke="{colors["border"]}" stroke-width="2"/>'
         )
         
-        # Step text
-        wrapped = _wrap_text(str(step), 25)
-        for j, line in enumerate(wrapped[:2]):
+        # Add subtle highlight at top of box
+        svg_parts.append(
+            f'<rect x="{x + 2}" y="{y + 2}" width="{box_width - 4}" height="20" rx="{rx - 2}" '
+            f'fill="white" opacity="0.1"/>'
+        )
+        
+        # Step text - wrap to multiple lines for better readability
+        step_text = str(step)
+        wrapped = _wrap_text(step_text, 45)  # More characters per line
+        
+        # Center the text block vertically
+        num_lines = min(len(wrapped), 3)
+        line_height = 18
+        start_y = y + (box_height / 2) - ((num_lines - 1) * line_height / 2)
+        
+        for j, line in enumerate(wrapped[:3]):
+            font_weight = "bold" if j == 0 and "**" in step_text else "normal"
+            clean_line = line.replace("**", "")  # Remove markdown bold markers
             svg_parts.append(
-                f'<text x="{width/2}" y="{y + 25 + j * 12}" text-anchor="middle" '
-                f'fill="{colors["text"]}" font-size="10">{_escape_xml(line)}</text>'
+                f'<text x="{width/2}" y="{start_y + j * line_height}" text-anchor="middle" '
+                f'fill="{colors["text"]}" font-size="14" font-weight="{font_weight}">{_escape_xml(clean_line)}</text>'
             )
         
-        # Arrow to next
+        # Arrow to next step
         if i < num_steps - 1:
+            arrow_y_start = y + box_height
+            arrow_y_end = y + box_height + spacing - 5
+            
+            # Larger, more prominent arrow
             svg_parts.append(
-                f'<path d="M{width/2},{y + box_height} L{width/2},{y + box_height + 20}" '
-                f'stroke="{colors["accent"]}" stroke-width="2" marker-end="url(#arrowhead)"/>'
+                f'<path d="M{width/2},{arrow_y_start + 5} L{width/2},{arrow_y_end}" '
+                f'stroke="{colors["accent"]}" stroke-width="3" marker-end="url(#arrowhead)"/>'
             )
         
-        y += 70
+        y += box_height + spacing
     
-    # Arrow marker
+    # Larger arrow marker
     svg_parts.append(
-        f'<defs><marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">'
-        f'<polygon points="0 0, 10 3.5, 0 7" fill="{colors["accent"]}"/></marker></defs>'
+        f'<defs><marker id="arrowhead" markerWidth="12" markerHeight="9" refX="10" refY="4.5" orient="auto">'
+        f'<polygon points="0 0, 12 4.5, 0 9" fill="{colors["accent"]}"/></marker></defs>'
     )
     
     svg_parts.append('</svg>')

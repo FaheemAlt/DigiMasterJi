@@ -353,28 +353,44 @@ export default function QuizRevisionPage() {
                                   <div className="ml-9 space-y-2">
                                     {question.options?.map((option, oIndex) => {
                                       const optionLetter = String.fromCharCode(65 + oIndex); // A, B, C, D
-                                      const isSelected = userAnswer === optionLetter;
-                                      const isCorrectOption = question.correct_answer === optionLetter;
+                                      const isSelected = userAnswer === optionLetter || userAnswer === option;
+                                      const isCorrectOption = question.correct_answer === option;
 
                                       return (
                                         <div
                                           key={oIndex}
-                                          className={`p-3 rounded-lg text-sm ${
+                                          className={`p-3 rounded-lg text-sm flex items-center justify-between ${
                                             isCorrectOption
-                                              ? 'bg-emerald-500/20 border border-emerald-500/30 text-emerald-300'
+                                              ? 'bg-emerald-500/30 border-2 border-emerald-400 text-emerald-200'
                                               : isSelected && !isCorrect
                                               ? 'bg-red-500/20 border border-red-500/30 text-red-300'
                                               : 'bg-white/5 border border-white/10 text-white/60'
                                           }`}
                                         >
-                                          <span className="font-medium mr-2">{optionLetter}.</span>
-                                          {option}
-                                          {isCorrectOption && (
-                                            <span className="ml-2 text-emerald-400">(Correct)</span>
-                                          )}
-                                          {isSelected && !isCorrect && (
-                                            <span className="ml-2 text-red-400">(Your answer)</span>
-                                          )}
+                                          <div>
+                                            <span className="font-medium mr-2">{optionLetter}.</span>
+                                            {option}
+                                          </div>
+                                          <div className="flex items-center gap-2">
+                                            {isCorrectOption && (
+                                              <span className="flex items-center gap-1 px-2 py-1 bg-emerald-500/40 text-emerald-300 text-xs font-semibold rounded-full">
+                                                <CheckCircle2 className="w-3 h-3" />
+                                                Correct Answer
+                                              </span>
+                                            )}
+                                            {isSelected && !isCorrect && (
+                                              <span className="flex items-center gap-1 px-2 py-1 bg-red-500/40 text-red-300 text-xs font-semibold rounded-full">
+                                                <XCircle className="w-3 h-3" />
+                                                Your answer
+                                              </span>
+                                            )}
+                                            {isSelected && isCorrect && (
+                                              <span className="flex items-center gap-1 px-2 py-1 bg-emerald-500/40 text-emerald-300 text-xs font-semibold rounded-full">
+                                                <CheckCircle2 className="w-3 h-3" />
+                                                You got it!
+                                              </span>
+                                            )}
+                                          </div>
                                         </div>
                                       );
                                     })}

@@ -80,7 +80,18 @@ export default function ChatPage() {
   // Check if profile session is valid on mount only
   useEffect(() => {
     const checkSession = () => {
-      if (!isProfileSessionValid()) {
+      // If we already have an active profile in context, session is valid
+      if (activeProfile) {
+        setSessionChecked(true);
+        return;
+      }
+
+      // Also check if there's a stored profile ID (for offline scenarios)
+      const storedProfileId = localStorage.getItem('active_profile_id');
+
+      // If online, use the normal session validation
+      // If offline with a stored profile ID, consider valid (we'll load from IndexedDB)
+      if (!isProfileSessionValid() && !(storedProfileId && !navigator.onLine)) {
         navigate('/profiles', { replace: true });
       } else {
         setSessionChecked(true);

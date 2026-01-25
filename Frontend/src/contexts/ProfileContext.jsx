@@ -1,10 +1,10 @@
 import React, { createContext, useState, useEffect, useCallback, useRef } from 'react';
 import { profilesApi } from '../api/profiles';
-import { 
-  setProfileToken, 
-  getProfileToken, 
-  clearProfileToken, 
-  isTokenExpired 
+import {
+  setProfileToken,
+  getProfileToken,
+  clearProfileToken,
+  isTokenExpired
 } from '../utils/token';
 import { setProfileAuthFailureCallback } from '../api/axios';
 import { syncService } from '../services/syncService';
@@ -21,10 +21,10 @@ export const ProfileProvider = ({ children }) => {
   useEffect(() => {
     const handleOnline = () => setIsOffline(false);
     const handleOffline = () => setIsOffline(true);
-    
+
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
-    
+
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
@@ -35,7 +35,7 @@ export const ProfileProvider = ({ children }) => {
   const refreshProfiles = useCallback(async () => {
     try {
       setLoading(true);
-      
+
       // Helper to load from local
       const loadFromLocal = async () => {
         console.log('[Profile] Loading profiles from local storage...');
@@ -49,13 +49,13 @@ export const ProfileProvider = ({ children }) => {
         setProfiles([]);
         return false;
       };
-      
+
       // If clearly offline, skip API
       if (!navigator.onLine) {
         await loadFromLocal();
         return;
       }
-      
+
       // Try API first
       try {
         const response = await profilesApi.getAllProfiles();
@@ -85,13 +85,13 @@ export const ProfileProvider = ({ children }) => {
     const token = getProfileToken();
     const expiry = localStorage.getItem('profile_access_token_expires');
     const storedProfileId = localStorage.getItem('active_profile_id');
-    
+
     // If no stored profile ID, nothing to restore
     if (!storedProfileId) return;
-    
+
     const hasValidToken = token && !isTokenExpired(expiry);
     const isCurrentlyOffline = !navigator.onLine;
-    
+
     // Allow restore if: valid token OR offline with stored profile
     if (hasValidToken || isCurrentlyOffline) {
       // Try to fetch from API first, fallback to local
@@ -106,7 +106,7 @@ export const ProfileProvider = ({ children }) => {
             console.log('[Profile] Failed to fetch active profile from API');
           }
         }
-        
+
         // Offline or API failed - try local storage
         try {
           const localProfiles = await syncService.getLocalProfiles();
@@ -126,7 +126,7 @@ export const ProfileProvider = ({ children }) => {
           }
         }
       };
-      
+
       loadProfile();
     }
   }, []);
@@ -135,7 +135,8 @@ export const ProfileProvider = ({ children }) => {
     clearProfileToken();
     localStorage.removeItem('active_profile_id');
     setActiveProfile(null);
-    window.location.href = '/select-profile';
+    // Use correct route '/profiles' instead of non-existent '/select-profile'
+    window.location.href = '/profiles';
   }, []);
 
   /**
@@ -167,22 +168,22 @@ export const ProfileProvider = ({ children }) => {
       console.log('[Profile] Already activating profile:', profileId, '- skipping');
       return true;
     }
-    
+
     // If this profile is already active, skip
     const currentActiveId = activeProfile?._id || activeProfile?.id;
     if (currentActiveId === profileId) {
       console.log('[Profile] Profile already active:', profileId, '- skipping');
       return true;
     }
-    
+
     activatingProfileIdRef.current = profileId;
     setIsActivating(true);
-    
+
     // Helper function to activate from local storage
     const activateFromLocal = async () => {
       const localProfiles = await syncService.getLocalProfiles();
       const profile = localProfiles.find(p => p._id === profileId);
-      
+
       if (profile) {
         console.log('[Profile] Activating profile from local storage');
         localStorage.setItem('active_profile_id', profileId);
@@ -202,12 +203,12 @@ export const ProfileProvider = ({ children }) => {
         setIsActivating(false);
       }
     }
-    
+
     try {
       // Online mode: get token from backend
       const response = await profilesApi.getProfileAccessToken(profileId);
       const { profile_token, expires_in } = response.data;
-      
+
       // Calculate expiry ISO from expires_in (seconds)
       let expiryISO;
       if (expires_in) {
@@ -251,13 +252,19 @@ export const ProfileProvider = ({ children }) => {
     const token = getProfileToken();
     const expiry = localStorage.getItem('profile_access_token_expires');
     const storedProfileId = localStorage.getItem('active_profile_id');
-    
+
+    // If we have an active profile in context, we're valid
+    // This handles cases where profile was activated from local storage
+    if (activeProfile) {
+      return true;
+    }
+
     // If online, require valid token
     if (navigator.onLine) {
       // 2-minute grace window is handled by isTokenExpired default (120s)
       return token && !isTokenExpired(expiry);
     }
-    
+
     // If offline, allow access if we have an active profile stored
     // (even without valid token - we'll use local data)
     return !!storedProfileId;

@@ -97,9 +97,12 @@ export function useChatService() {
     }
   }, []);
 
-  // Check offline model availability on mount
+  // Check offline model availability on mount (only when online to avoid 401 issues)
   useEffect(() => {
-    checkOfflineModelAvailability();
+    // Don't make API calls when offline - this prevents auth failure triggers
+    if (navigator.onLine) {
+      checkOfflineModelAvailability();
+    }
   }, [checkOfflineModelAvailability]);
 
   /**

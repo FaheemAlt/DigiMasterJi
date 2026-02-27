@@ -1,44 +1,62 @@
 """
-LLM Service - Ollama Integration for Gemma 3 12B Model
-========================================================
-This service handles communication with the local Ollama server
+LLM Service - AWS Bedrock Integration for Meta Llama 3.1 8B Instruct
+=====================================================================
+This service handles communication with Amazon Bedrock
 for generating AI tutor responses in multiple Indian languages.
 
 DigiMasterJi - Multilingual AI Tutor for Rural Education
 """
 
-import httpx
+import boto3
+from botocore.exceptions import ClientError
 from typing import Optional, AsyncGenerator, Dict, Any, List
 import json
 import os
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
+import logging
 
 load_dotenv()
+logger = logging.getLogger(__name__)
+
+# Thread pool for running sync boto3 calls in async context
+_executor = ThreadPoolExecutor(max_workers=4)
 
 
 class LLMService:
     """
-    Service for interacting with Ollama's local LLM API.
-    Uses Gemma 3 12B model for multilingual STEM tutoring.
+    Service for interacting with Amazon Bedrock's LLM API.
+    Uses Meta Llama 3.1 8B Instruct for multilingual STEM tutoring.
     """
     
     def __init__(
         self,
-        base_url: Optional[str] = None,
-        model_name: Optional[str] = None,
+        model_id: Optional[str] = None,
+        region: Optional[str] = None,
         timeout: float = 120.0
     ):
         """
         Initialize the LLM service.
         
         Args:
-            base_url: Ollama server URL (defaults to env or localhost:11434)
-            model_name: Model to use (defaults to gemma3:12b)
+            model_id: Bedrock model ID (defaults to meta.llama3-1-8b-instruct-v1:0)
+            region: AWS region for Bedrock
             timeout: Request timeout in seconds
         """
-        self.base_url = base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        self.model_name = model_name or os.getenv("OLLAMA_MODEL", "gemma3:12b")
+        # Use cross-region inference profile for Llama models (required for on-demand throughput)
+        # Format: us.meta.llama3-1-8b-instruct-v1:0 (not meta.llama3-1-8b-instruct-v1:0)
+        default_model = "us.meta.llama3-1-8b-instruct-v1:0"
+        self.model_id = model_id or os.getenv("BEDROCK_MODEL_ID", default_model)
+        
+        # Ensure we use cross-region inference profile format
+        if self.model_id.startswith("meta.") and not self.model_id.startswith("us."):
+            self.model_id = f"us.{self.model_id}"
+        self.region = region or os.getenv("AWS_REGION", "us-east-1")
         self.timeout = timeout
+        
+        # Initialize Bedrock Runtime client
+        self._client = None
         
         # System prompt for STEM tutoring in regional languages
         self.default_system_prompt = """You are DigiMasterJi, a friendly and patient AI tutor designed to teach STEM concepts to rural and under-resourced students in India. 
@@ -53,104 +71,165 @@ Key Guidelines:
 
 Remember: Many students may have limited prior exposure to these concepts. Be patient and thorough."""
 
+    @property
+    def client(self):
+        """Lazy initialization of Bedrock Runtime client."""
+        if self._client is None:
+            self._client = boto3.client(
+                "bedrock-runtime",
+                region_name=self.region
+            )
+        return self._client
+
     async def check_health(self) -> Dict[str, Any]:
         """
-        Check if Ollama server is running and accessible.
+        Check if Bedrock service is accessible.
         
         Returns:
-            Dictionary with health status and available models
+            Dictionary with health status and model info
         """
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                # Check if server is running
-                response = await client.get(f"{self.base_url}/api/tags")
-                if response.status_code == 200:
-                    models = response.json().get("models", [])
-                    model_names = [m.get("name", "") for m in models]
-                    return {
-                        "status": "healthy",
-                        "server": self.base_url,
-                        "available_models": model_names,
-                        "target_model": self.model_name,
-                        "model_available": any(self.model_name in m for m in model_names)
-                    }
-                return {"status": "unhealthy", "error": f"Status code: {response.status_code}"}
-        except httpx.ConnectError:
+            # Try to list foundation models to verify access
+            bedrock_client = boto3.client("bedrock", region_name=self.region)
+            
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                _executor,
+                lambda: bedrock_client.list_foundation_models(
+                    byProvider="meta"
+                )
+            )
+            
+            models = response.get("modelSummaries", [])
+            model_ids = [m.get("modelId", "") for m in models]
+            
+            return {
+                "status": "healthy",
+                "service": "Amazon Bedrock",
+                "region": self.region,
+                "available_models": model_ids[:10],  # Limit to first 10
+                "target_model": self.model_id,
+                "model_available": any(self.model_id in m for m in model_ids)
+            }
+            
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code", "Unknown")
             return {
                 "status": "unhealthy",
-                "error": f"Cannot connect to Ollama at {self.base_url}. Is Ollama running?"
+                "error": f"Bedrock error ({error_code}): {str(e)}"
             }
         except Exception as e:
-            return {"status": "unhealthy", "error": str(e)}
+            return {
+                "status": "unhealthy", 
+                "error": f"Connection error: {str(e)}"
+            }
 
     async def generate(
         self,
         prompt: str,
         system_prompt: Optional[str] = None,
-        context: Optional[List[int]] = None,
+        context: Optional[List[int]] = None,  # Kept for API compatibility
         temperature: float = 0.7,
         max_tokens: int = 2048,
         stream: bool = False
     ) -> Dict[str, Any]:
         """
-        Generate a response from the LLM.
+        Generate a response from the LLM using Bedrock Converse API.
         
         Args:
             prompt: User's input message
             system_prompt: Custom system prompt (uses default if not provided)
-            context: Previous conversation context (for maintaining chat history)
+            context: Ignored (kept for API compatibility with Ollama version)
             temperature: Creativity of response (0.0 = deterministic, 1.0 = creative)
             max_tokens: Maximum response length
-            stream: Whether to stream the response
+            stream: Whether to stream (not supported in this method, use generate_stream)
             
         Returns:
             Dictionary containing the response and metadata
         """
         system = system_prompt or self.default_system_prompt
         
-        payload = {
-            "model": self.model_name,
-            "prompt": prompt,
-            "system": system,
-            "options": {
-                "temperature": temperature,
-                "num_predict": max_tokens,
-            },
-            "stream": stream
+        # Build messages for Converse API
+        messages = [
+            {
+                "role": "user",
+                "content": [{"text": prompt}]
+            }
+        ]
+        
+        # System prompt as system parameter
+        system_prompts = [{"text": system}]
+        
+        # Inference configuration
+        inference_config = {
+            "temperature": temperature,
+            "maxTokens": max_tokens
         }
         
-        if context:
-            payload["context"] = context
-        
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(
-                    f"{self.base_url}/api/generate",
-                    json=payload
+            loop = asyncio.get_event_loop()
+            
+            response = await loop.run_in_executor(
+                _executor,
+                lambda: self.client.converse(
+                    modelId=self.model_id,
+                    messages=messages,
+                    system=system_prompts,
+                    inferenceConfig=inference_config
                 )
-                response.raise_for_status()
-                result = response.json()
-                
+            )
+            
+            # Extract response text
+            output = response.get("output", {})
+            message = output.get("message", {})
+            content_blocks = message.get("content", [])
+            response_text = ""
+            
+            for block in content_blocks:
+                if "text" in block:
+                    response_text += block["text"]
+            
+            # Get usage stats
+            usage = response.get("usage", {})
+            
+            return {
+                "success": True,
+                "response": response_text,
+                "context": [],  # Bedrock doesn't use context tokens like Ollama
+                "model": self.model_id,
+                "total_duration": 0,  # Not provided by Bedrock
+                "eval_count": usage.get("outputTokens", 0),
+                "input_tokens": usage.get("inputTokens", 0),
+                "stop_reason": response.get("stopReason", "")
+            }
+            
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code", "Unknown")
+            logger.error(f"[LLM] Bedrock error: {error_code} - {e}")
+            
+            if error_code == "ThrottlingException":
                 return {
-                    "success": True,
-                    "response": result.get("response", ""),
-                    "context": result.get("context", []),  # For maintaining conversation
-                    "model": result.get("model", self.model_name),
-                    "total_duration": result.get("total_duration", 0),
-                    "eval_count": result.get("eval_count", 0)
+                    "success": False,
+                    "error": "Request throttled. Please try again in a moment."
+                }
+            elif error_code == "ValidationException":
+                return {
+                    "success": False,
+                    "error": f"Invalid request: {str(e)}"
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"Bedrock error ({error_code}): {str(e)}"
                 }
                 
-        except httpx.TimeoutException:
+        except asyncio.TimeoutError:
             return {
                 "success": False,
-                "error": "Request timed out. The model may be loading or processing a complex query."
-            }
-        except httpx.HTTPStatusError as e:
-            return {
-                "success": False,
-                "error": f"HTTP error: {e.response.status_code}"
+                "error": "Request timed out. The model may be processing a complex query."
             }
         except Exception as e:
+            logger.error(f"[LLM] Unexpected error: {e}")
             return {
                 "success": False,
                 "error": str(e)
@@ -165,43 +244,59 @@ Remember: Many students may have limited prior exposure to these concepts. Be pa
         max_tokens: int = 2048
     ) -> AsyncGenerator[str, None]:
         """
-        Stream a response from the LLM token by token.
+        Stream a response from the LLM using Bedrock ConverseStream API.
         
         Yields:
             Individual response tokens as they are generated
         """
         system = system_prompt or self.default_system_prompt
         
-        payload = {
-            "model": self.model_name,
-            "prompt": prompt,
-            "system": system,
-            "options": {
-                "temperature": temperature,
-                "num_predict": max_tokens,
-            },
-            "stream": True
+        # Build messages for Converse API
+        messages = [
+            {
+                "role": "user",
+                "content": [{"text": prompt}]
+            }
+        ]
+        
+        system_prompts = [{"text": system}]
+        
+        inference_config = {
+            "temperature": temperature,
+            "maxTokens": max_tokens
         }
         
-        if context:
-            payload["context"] = context
-        
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                async with client.stream(
-                    "POST",
-                    f"{self.base_url}/api/generate",
-                    json=payload
-                ) as response:
-                    response.raise_for_status()
-                    async for line in response.aiter_lines():
-                        if line:
-                            data = json.loads(line)
-                            if "response" in data:
-                                yield data["response"]
-                            if data.get("done", False):
-                                break
+            # Use converseStream for streaming
+            loop = asyncio.get_event_loop()
+            
+            response = await loop.run_in_executor(
+                _executor,
+                lambda: self.client.converse_stream(
+                    modelId=self.model_id,
+                    messages=messages,
+                    system=system_prompts,
+                    inferenceConfig=inference_config
+                )
+            )
+            
+            # Process the event stream
+            stream = response.get("stream")
+            if stream:
+                for event in stream:
+                    if "contentBlockDelta" in event:
+                        delta = event["contentBlockDelta"].get("delta", {})
+                        if "text" in delta:
+                            yield delta["text"]
+                    elif "messageStop" in event:
+                        break
+                        
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code", "Unknown")
+            logger.error(f"[LLM STREAM] Bedrock error: {error_code}")
+            yield f"[Error: {str(e)}]"
         except Exception as e:
+            logger.error(f"[LLM STREAM] Unexpected error: {e}")
             yield f"[Error: {str(e)}]"
 
     async def chat(
@@ -211,7 +306,7 @@ Remember: Many students may have limited prior exposure to these concepts. Be pa
         max_tokens: int = 2048
     ) -> Dict[str, Any]:
         """
-        Chat completion with message history.
+        Chat completion with message history using Bedrock Converse API.
         
         Args:
             messages: List of message dicts with 'role' and 'content' keys
@@ -222,38 +317,82 @@ Remember: Many students may have limited prior exposure to these concepts. Be pa
         Returns:
             Dictionary containing the assistant's response
         """
-        # Ensure system message is present
-        has_system = any(m.get("role") == "system" for m in messages)
-        if not has_system:
-            messages = [{"role": "system", "content": self.default_system_prompt}] + messages
+        # Extract system message if present
+        system_content = self.default_system_prompt
+        chat_messages = []
         
-        payload = {
-            "model": self.model_name,
-            "messages": messages,
-            "options": {
-                "temperature": temperature,
-                "num_predict": max_tokens,
-            },
-            "stream": False
+        for msg in messages:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            
+            if role == "system":
+                system_content = content
+            elif role in ["user", "assistant"]:
+                chat_messages.append({
+                    "role": role,
+                    "content": [{"text": content}]
+                })
+        
+        # Ensure we have at least one user message
+        if not chat_messages:
+            return {
+                "success": False,
+                "error": "No user or assistant messages provided"
+            }
+        
+        system_prompts = [{"text": system_content}]
+        
+        inference_config = {
+            "temperature": temperature,
+            "maxTokens": max_tokens
         }
         
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(
-                    f"{self.base_url}/api/chat",
-                    json=payload
+            loop = asyncio.get_event_loop()
+            
+            response = await loop.run_in_executor(
+                _executor,
+                lambda: self.client.converse(
+                    modelId=self.model_id,
+                    messages=chat_messages,
+                    system=system_prompts,
+                    inferenceConfig=inference_config
                 )
-                response.raise_for_status()
-                result = response.json()
-                
-                return {
-                    "success": True,
-                    "message": result.get("message", {}),
-                    "model": result.get("model", self.model_name),
-                    "total_duration": result.get("total_duration", 0)
-                }
-                
+            )
+            
+            # Extract response
+            output = response.get("output", {})
+            message = output.get("message", {})
+            content_blocks = message.get("content", [])
+            response_text = ""
+            
+            for block in content_blocks:
+                if "text" in block:
+                    response_text += block["text"]
+            
+            usage = response.get("usage", {})
+            
+            return {
+                "success": True,
+                "message": {
+                    "role": "assistant",
+                    "content": response_text
+                },
+                "model": self.model_id,
+                "total_duration": 0,
+                "input_tokens": usage.get("inputTokens", 0),
+                "output_tokens": usage.get("outputTokens", 0)
+            }
+            
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code", "Unknown")
+            logger.error(f"[LLM CHAT] Bedrock error: {error_code}")
+            return {
+                "success": False,
+                "error": f"Bedrock error ({error_code}): {str(e)}"
+            }
         except Exception as e:
+            logger.error(f"[LLM CHAT] Unexpected error: {e}")
             return {
                 "success": False,
                 "error": str(e)
@@ -268,24 +407,24 @@ llm_service = LLMService()
 async def test_llm_service():
     """Test the LLM service connection and generation."""
     print("=" * 60)
-    print("Testing LLM Service (Ollama + Gemma)")
+    print("Testing LLM Service (Amazon Bedrock + Llama 3.1)")
     print("=" * 60)
     
     service = LLMService()
     
     # Test 1: Health check
-    print("\n1. Checking Ollama server health...")
+    print("\n1. Checking Bedrock service health...")
     health = await service.check_health()
     print(f"   Status: {health.get('status')}")
     if health.get('status') == 'healthy':
-        print(f"   Available models: {health.get('available_models', [])}")
-        print(f"   Target model ({service.model_name}) available: {health.get('model_available')}")
+        print(f"   Region: {health.get('region')}")
+        print(f"   Target model ({service.model_id}) available: {health.get('model_available')}")
     else:
         print(f"   Error: {health.get('error')}")
         print("\n   ⚠️  To fix this:")
-        print("   1. Install Ollama: https://ollama.ai/download")
-        print("   2. Run: ollama serve")
-        print(f"   3. Pull model: ollama pull {service.model_name}")
+        print("   1. Ensure AWS credentials are configured")
+        print("   2. Verify Bedrock access is enabled in your AWS account")
+        print(f"   3. Request access to model: {service.model_id}")
         return
     
     # Test 2: Simple generation
@@ -295,7 +434,10 @@ async def test_llm_service():
     
     result = await service.generate(test_prompt)
     if result.get("success"):
-        print(f"   Response: {result.get('response', '')[:200]}...")
+        response = result.get('response', '')
+        print(f"   Response: {response[:200]}..." if len(response) > 200 else f"   Response: {response}")
+        print(f"   Input tokens: {result.get('input_tokens', 0)}")
+        print(f"   Output tokens: {result.get('eval_count', 0)}")
     else:
         print(f"   Error: {result.get('error')}")
     

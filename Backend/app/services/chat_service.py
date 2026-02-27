@@ -261,12 +261,10 @@ class ChatService:
         try:
             logger.info(f"[CHAT FLOW] Searching RAG knowledge base for: '{query[:50]}...'")
             
-            # Generate embedding for the query
-            query_embedding = rag_service.generate_embedding(query)
-            
-            # Perform vector search
+            # Perform vector search using Bedrock Knowledge Bases
+            # Note: Bedrock handles embedding internally
             results = await vector_search(
-                query_embedding=query_embedding,
+                query_text=query,
                 limit=limit,
                 subject=subject,
                 language=language

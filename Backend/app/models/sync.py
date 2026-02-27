@@ -9,7 +9,7 @@ Note: Audio data is excluded from sync responses as per requirement.
 
 from pydantic import BaseModel, Field
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, date
 
 
 class SyncMessageResponse(BaseModel):
@@ -83,6 +83,34 @@ class SyncLearningPreferencesResponse(BaseModel):
     voice_enabled: bool = True
 
 
+class SyncQuizQuestionResponse(BaseModel):
+    """Quiz question for sync response."""
+    question_id: str
+    question_text: str
+    options: List[str]
+    correct_answer: str
+    user_answer: Optional[str] = None
+
+
+class SyncQuizResponse(BaseModel):
+    """Quiz model for sync response."""
+    id: str = Field(..., alias="_id")
+    profile_id: str
+    topic: str
+    difficulty: str
+    quiz_date: date
+    created_at: datetime
+    status: str
+    score: Optional[int] = None
+    completed_at: Optional[datetime] = None
+    xp_earned: Optional[int] = None
+    questions: List[SyncQuizQuestionResponse] = Field(default_factory=list)
+    is_backlog: bool = False
+    
+    class Config:
+        populate_by_name = True
+
+
 class SyncProfileResponse(BaseModel):
     """
     Profile model for sync response.
@@ -100,6 +128,7 @@ class SyncProfileResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     conversations: List[SyncConversationResponse] = Field(default_factory=list)
+    quizzes: List[SyncQuizResponse] = Field(default_factory=list)
     
     class Config:
         populate_by_name = True
@@ -123,7 +152,8 @@ class SyncProfileResponse(BaseModel):
                 },
                 "created_at": "2024-01-01T00:00:00",
                 "updated_at": "2024-01-20T15:30:00",
-                "conversations": []
+                "conversations": [],
+                "quizzes": []
             }
         }
 
@@ -154,6 +184,7 @@ class SyncPullResponse(BaseModel):
     total_profiles: int = 0
     total_conversations: int = 0
     total_messages: int = 0
+    total_quizzes: int = 0
     sync_period_days: int = 180
     
     class Config:

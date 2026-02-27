@@ -15,7 +15,6 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 
 from app.services.llm_service import LLMService
-from app.services.rag_service import rag_service
 from app.database.quizzes import QuizzesDatabase
 from app.database.profiles import ProfilesDatabase
 from app.database.knowledge_base import vector_search
@@ -151,11 +150,9 @@ class QuizSummaryService:
             # Create a search query from weak topics
             search_query = " ".join(set(weak_topics[:10]))
             
-            # Generate embedding and search knowledge base
-            query_embedding = rag_service.generate_embedding(search_query)
-            
+            # Search knowledge base using Bedrock (handles embedding internally)
             rag_results = await vector_search(
-                query_embedding=query_embedding,
+                query_text=search_query,
                 limit=5,
                 subject=None,
                 language=None

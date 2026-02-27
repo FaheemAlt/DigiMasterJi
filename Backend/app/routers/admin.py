@@ -30,7 +30,7 @@ router = APIRouter(prefix="/admin", tags=["Admin"])
     "/upload",
     response_model=DocumentUploadResponse,
     summary="Upload PDF for RAG ingestion",
-    description="Upload a PDF document to be parsed, chunked, and stored in the vector database."
+    description="Upload a PDF document to S3 for Bedrock Knowledge Base ingestion."
 )
 async def upload_document(
     file: UploadFile = File(..., description="PDF file to upload"),
@@ -40,14 +40,13 @@ async def upload_document(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Upload and process a PDF document for RAG.
+    Upload a PDF document to S3 for RAG ingestion via Bedrock Knowledge Bases.
     
     This endpoint:
     1. Validates the uploaded file is a PDF
-    2. Extracts text from the PDF
-    3. Chunks the text into ~500 token segments with overlap
-    4. Generates vector embeddings for each chunk
-    5. Stores chunks in MongoDB with vector embeddings
+    2. Uploads the PDF to S3
+    3. Tracks the upload in DynamoDB
+    4. Optionally triggers Bedrock Knowledge Base sync
     
     Requires JWT authentication.
     """
@@ -73,39 +72,32 @@ async def upload_document(
             detail="Empty file uploaded"
         )
     
-    # Parse tags
-    tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
-    
     try:
-        logger.info(f"[RAG UPLOAD] Processing PDF: {file.filename} (subject: {subject.value}, language: {language.value})")
+        logger.info(f"[RAG UPLOAD] Uploading PDF to S3: {file.filename} (subject: {subject.value}, language: {language.value})")
         
-        # Process PDF: extract, chunk, embed
-        documents = rag_service.process_pdf(
-            pdf_bytes=pdf_bytes,
+        # Upload PDF to S3 and track in DynamoDB
+        upload_result = await kb_db.upload_document_to_s3(
+            file_content=pdf_bytes,
             filename=file.filename,
             subject=subject.value,
             language=language.value,
-            tags=tag_list
+            content_type="application/pdf"
         )
         
-        if not documents:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="No content could be extracted from the PDF"
-            )
+        logger.info(f"[RAG UPLOAD] Successfully uploaded document {upload_result['documentId']} to S3")
         
-        logger.info(f"[RAG UPLOAD] Created {len(documents)} chunks from PDF, storing in knowledge_base collection...")
-        
-        # Store in database
-        inserted_ids = await kb_db.insert_many_knowledge_chunks(documents)
-        
-        logger.info(f"[RAG UPLOAD] Successfully stored {len(inserted_ids)} chunks in knowledge_base collection")
+        # Trigger Bedrock Knowledge Base sync
+        try:
+            sync_result = await kb_db.trigger_knowledge_base_sync()
+            logger.info(f"[RAG UPLOAD] Knowledge Base sync: {sync_result.get('status')}")
+        except Exception as sync_error:
+            logger.warning(f"[RAG UPLOAD] KB sync warning (non-fatal): {sync_error}")
         
         return DocumentUploadResponse(
             success=True,
-            message=f"Successfully processed and stored {len(inserted_ids)} chunks",
+            message=f"Successfully uploaded document to S3. Bedrock will process and index automatically.",
             filename=file.filename,
-            chunks_processed=len(inserted_ids),
+            chunks_processed=1,  # S3 upload is single document
             subject=subject.value,
             language=language.value
         )
@@ -118,7 +110,7 @@ async def upload_document(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error processing document: {str(e)}"
+            detail=f"Error uploading document: {str(e)}"
         )
 
 
@@ -126,27 +118,25 @@ async def upload_document(
     "/search",
     response_model=List[VectorSearchResult],
     summary="Vector search in knowledge base",
-    description="Perform semantic search in the knowledge base using vector similarity."
+    description="Perform semantic search in the knowledge base using Bedrock Knowledge Bases."
 )
 async def search_knowledge_base(
     request: VectorSearchRequest,
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Search the knowledge base using vector similarity.
+    Search the knowledge base using Bedrock Knowledge Bases.
     
     This endpoint:
-    1. Generates an embedding for the query text
-    2. Performs vector search in MongoDB Atlas
+    1. Sends the query to Bedrock Knowledge Bases
+    2. Bedrock handles embedding and vector search internally
     3. Returns the most relevant chunks with similarity scores
     """
     try:
-        # Generate embedding for the query
-        query_embedding = rag_service.generate_embedding(request.query)
-        
-        # Perform vector search
+        # Perform vector search using Bedrock Knowledge Bases
+        # Note: The new vector_search takes query_text directly
         results = await kb_db.vector_search(
-            query_embedding=query_embedding,
+            query_text=request.query,
             limit=request.limit,
             subject=request.subject.value if request.subject else None,
             language=request.language.value if request.language else None
@@ -156,7 +146,7 @@ async def search_knowledge_base(
         return [
             VectorSearchResult(
                 id=r["_id"],
-                title=r["title"],
+                title=r.get("title", "Knowledge Base Result"),
                 content_chunk=r["content_chunk"],
                 subject=r["subject"],
                 language=r["language"],
@@ -182,12 +172,52 @@ async def list_documents(
     current_user: dict = Depends(get_current_user)
 ):
     """List all uploaded documents with their chunk counts."""
+    from app.database.mongodb_embeddings import get_documents_list
+    
     try:
-        documents = await kb_db.get_all_source_files()
+        # Get documents from DynamoDB (metadata)
+        dynamo_docs = await kb_db.get_all_source_files()
+        
+        # Get documents from MongoDB (actual embeddings with chunk counts)
+        mongo_docs = await get_documents_list()
+        
+        # Create a map of MongoDB docs by filename for quick lookup
+        mongo_map = {}
+        for doc in mongo_docs:
+            filename = doc.get("filename", "")
+            if filename:
+                mongo_map[filename] = doc
+        
+        # Merge the documents - add chunk_count from MongoDB
+        merged_docs = []
+        for doc in dynamo_docs:
+            filename = doc.get("filename", "")
+            mongo_doc = mongo_map.get(filename, {})
+            
+            merged_docs.append({
+                **doc,
+                "chunk_count": mongo_doc.get("chunk_count", 0),
+                "source_uri": mongo_doc.get("source_uri", "")
+            })
+        
+        # Also include MongoDB-only docs (in case DynamoDB is out of sync)
+        dynamo_filenames = {d.get("filename", "") for d in dynamo_docs}
+        for mongo_doc in mongo_docs:
+            filename = mongo_doc.get("filename", "")
+            if filename and filename not in dynamo_filenames:
+                merged_docs.append({
+                    "filename": filename,
+                    "subject": mongo_doc.get("subject", "unknown"),
+                    "language": mongo_doc.get("language", "unknown"),
+                    "chunk_count": mongo_doc.get("chunk_count", 0),
+                    "source_uri": mongo_doc.get("source_uri", ""),
+                    "status": "synced"  # Exists in KB but not in DynamoDB metadata
+                })
+        
         return {
             "success": True,
-            "documents": documents,
-            "total": len(documents)
+            "documents": merged_docs,
+            "total": len(merged_docs)
         }
     except Exception as e:
         raise HTTPException(
@@ -265,3 +295,97 @@ async def get_rag_info(
         "success": True,
         **rag_service.get_info()
     }
+
+
+@router.post(
+    "/sync",
+    summary="Trigger Knowledge Base sync",
+    description="Manually trigger Bedrock Knowledge Base to process new documents from S3."
+)
+async def trigger_sync(
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Manually trigger Bedrock Knowledge Base sync/ingestion.
+    
+    Use this to:
+    1. Force a sync after uploading documents
+    2. Check if sync is working correctly
+    
+    Returns the job ID which can be used to check status.
+    """
+    try:
+        result = await kb_db.trigger_knowledge_base_sync()
+        return {
+            "success": True,
+            **result
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to trigger sync: {str(e)}"
+        )
+
+
+@router.get(
+    "/sync/jobs",
+    summary="List ingestion jobs",
+    description="List recent Knowledge Base ingestion jobs with their status."
+)
+async def list_sync_jobs(
+    limit: int = 10,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    List recent ingestion jobs for the Knowledge Base.
+    
+    Returns job statuses:
+    - STARTING: Job is being initialized
+    - IN_PROGRESS: Job is processing documents
+    - COMPLETE: Job finished successfully
+    - FAILED: Job failed (check failureReasons)
+    
+    Documents are indexed and searchable once status is COMPLETE.
+    """
+    try:
+        result = await kb_db.list_ingestion_jobs(limit=limit)
+        return {
+            "success": True,
+            **result
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list ingestion jobs: {str(e)}"
+        )
+
+
+@router.get(
+    "/sync/jobs/{job_id}",
+    summary="Get ingestion job status",
+    description="Get detailed status of a specific ingestion job."
+)
+async def get_sync_job_status(
+    job_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get detailed status of a specific ingestion job.
+    
+    Includes:
+    - Current status (STARTING, IN_PROGRESS, COMPLETE, FAILED)
+    - Statistics (documents scanned, indexed, failed)
+    - Timestamps (started, updated)
+    - Failure reasons if applicable
+    """
+    try:
+        result = await kb_db.get_ingestion_job_status(job_id)
+        return {
+            "success": True,
+            **result
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get job status: {str(e)}"
+        )

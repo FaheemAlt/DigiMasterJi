@@ -1,28 +1,62 @@
 """
-Messages Database Operations
-=============================
-CRUD operations for the messages collection.
+Messages Database Operations - DynamoDB
+========================================
+CRUD operations for the messages table.
+
+DynamoDB Table: digimasterji-messages
+- Partition Key: conversationId (String)
+- Sort Key: messageId (String) - timestamp-prefixed UUID for ordering
+- GSI: profileId-timestamp-index (for fetching messages by profile)
+
+DigiMasterJi - AWS Migration
 """
 
-from motor.motor_asyncio import AsyncIOMotorClient
-from bson import ObjectId
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timedelta
+from boto3.dynamodb.conditions import Key, Attr
 
 from app.models.message import MessageCreate, MessageInDB
-from app.database.mongodb import get_database
+from app.database.dynamo import (
+    get_table,
+    generate_timestamp_id,
+    TABLE_MESSAGES,
+    datetime_to_iso,
+    iso_to_datetime,
+    serialize_for_dynamo,
+    deserialize_from_dynamo
+)
 
 
 class MessagesDatabase:
-    """Database operations for messages collection."""
+    """Database operations for messages table."""
     
-    COLLECTION_NAME = "messages"
+    TABLE_NAME = TABLE_MESSAGES
     
     @staticmethod
-    async def get_collection():
-        """Get messages collection from database."""
-        client = await get_database()
-        return client["digimasterji"][MessagesDatabase.COLLECTION_NAME]
+    def get_table():
+        """Get messages table."""
+        return get_table(MessagesDatabase.TABLE_NAME)
+    
+    @staticmethod
+    def _item_to_message(item: dict) -> MessageInDB:
+        """Convert DynamoDB item to MessageInDB model."""
+        item = deserialize_from_dynamo(item)
+        
+        return MessageInDB(
+            _id=item.get("messageId"),
+            conversation_id=item.get("conversationId"),
+            profile_id=item.get("profileId"),
+            role=item.get("role"),
+            content=item.get("content"),
+            content_translated=item.get("content_translated"),
+            audio_url=item.get("audio_url"),
+            timestamp=iso_to_datetime(item.get("timestamp")),
+            rag_references=item.get("rag_references", []),
+            audio_base64=item.get("audio_base64"),
+            audio_format=item.get("audio_format"),
+            audio_language=item.get("audio_language"),
+            audio_language_name=item.get("audio_language_name")
+        )
     
     @staticmethod
     async def create_message(
@@ -34,55 +68,65 @@ class MessagesDatabase:
         Create a new message in a conversation.
         
         Args:
-            conversation_id: Conversation's ObjectId as string
+            conversation_id: Conversation's ID as string
             profile_id: Student profile ID
             message_data: Message creation data
             
         Returns:
             MessageInDB: Created message document
         """
-        if not ObjectId.is_valid(conversation_id):
+        if not conversation_id:
             raise ValueError("Invalid conversation_id")
-        if not ObjectId.is_valid(profile_id):
+        if not profile_id:
             raise ValueError("Invalid profile_id")
             
-        collection = await MessagesDatabase.get_collection()
+        table = MessagesDatabase.get_table()
         
-        message_dict = {
-            "conversation_id": ObjectId(conversation_id),
-            "profile_id": ObjectId(profile_id),
+        # Use timestamp-prefixed UUID for natural ordering
+        message_id = generate_timestamp_id()
+        now = datetime.utcnow()
+        
+        item = {
+            "conversationId": conversation_id,
+            "messageId": message_id,
+            "profileId": profile_id,
             "role": message_data.role,
             "content": message_data.content,
             "content_translated": message_data.content_translated,
             "audio_url": message_data.audio_url,
-            "timestamp": datetime.utcnow(),
+            "timestamp": datetime_to_iso(now),
             "rag_references": []
         }
         
-        result = await collection.insert_one(message_dict)
-        message_dict["_id"] = result.inserted_id
+        table.put_item(Item=serialize_for_dynamo(item))
         
-        return MessageInDB(**message_dict)
+        return MessagesDatabase._item_to_message(item)
     
     @staticmethod
     async def get_message_by_id(message_id: str) -> Optional[MessageInDB]:
         """
-        Get message by ID.
+        Get message by ID using GSI.
         
         Args:
-            message_id: Message's ObjectId as string
+            message_id: Message's ID as string
             
         Returns:
             MessageInDB or None
         """
-        if not ObjectId.is_valid(message_id):
+        if not message_id:
             return None
             
-        collection = await MessagesDatabase.get_collection()
-        message_doc = await collection.find_one({"_id": ObjectId(message_id)})
+        table = MessagesDatabase.get_table()
         
-        if message_doc:
-            return MessageInDB(**message_doc)
+        # Query using GSI on messageId
+        response = table.query(
+            IndexName="messageId-index",
+            KeyConditionExpression=Key("messageId").eq(message_id)
+        )
+        
+        items = response.get("Items", [])
+        if items:
+            return MessagesDatabase._item_to_message(items[0])
         return None
     
     @staticmethod
@@ -94,28 +138,47 @@ class MessagesDatabase:
         Get all messages for a conversation.
         
         Args:
-            conversation_id: Conversation's ObjectId as string
+            conversation_id: Conversation's ID as string
             limit: Optional limit on number of messages
             
         Returns:
             List of MessageInDB sorted by timestamp ascending
         """
-        if not ObjectId.is_valid(conversation_id):
+        if not conversation_id:
             return []
             
-        collection = await MessagesDatabase.get_collection()
+        table = MessagesDatabase.get_table()
         
-        # Sort by timestamp ascending (chronological order)
-        cursor = collection.find(
-            {"conversation_id": ObjectId(conversation_id)}
-        ).sort("timestamp", 1)
+        query_params = {
+            "KeyConditionExpression": Key("conversationId").eq(conversation_id),
+            "ScanIndexForward": True  # Ascending order by sort key
+        }
         
         if limit:
-            cursor = cursor.limit(limit)
+            # For limit, we query in reverse and take last N
+            query_params["ScanIndexForward"] = False
+            query_params["Limit"] = limit
+        
+        response = table.query(**query_params)
+        items = response.get("Items", [])
+        
+        # Handle pagination for large conversations
+        while "LastEvaluatedKey" in response and (limit is None or len(items) < limit):
+            response = table.query(
+                **query_params,
+                ExclusiveStartKey=response["LastEvaluatedKey"]
+            )
+            items.extend(response.get("Items", []))
+        
+        # Sort by messageId (which is timestamp-prefixed) for chronological order
+        items.sort(key=lambda x: x.get("messageId", ""))
+        
+        if limit:
+            items = items[-limit:]  # Take last N messages
         
         messages = []
-        async for doc in cursor:
-            messages.append(MessageInDB(**doc))
+        for item in items:
+            messages.append(MessagesDatabase._item_to_message(item))
         
         return messages
     
@@ -134,18 +197,22 @@ class MessagesDatabase:
         Returns:
             List of MessageInDB
         """
-        if not ObjectId.is_valid(profile_id):
+        if not profile_id:
             return []
             
-        collection = await MessagesDatabase.get_collection()
+        table = MessagesDatabase.get_table()
         
-        cursor = collection.find(
-            {"profile_id": ObjectId(profile_id)}
-        ).sort("timestamp", -1).limit(limit)
+        # Query using GSI on profileId
+        response = table.query(
+            IndexName="profileId-timestamp-index",
+            KeyConditionExpression=Key("profileId").eq(profile_id),
+            ScanIndexForward=False,  # Most recent first
+            Limit=limit
+        )
         
         messages = []
-        async for doc in cursor:
-            messages.append(MessageInDB(**doc))
+        for item in response.get("Items", []):
+            messages.append(MessagesDatabase._item_to_message(item))
         
         return messages
     
@@ -155,18 +222,22 @@ class MessagesDatabase:
         Count messages in a conversation.
         
         Args:
-            conversation_id: Conversation's ObjectId as string
+            conversation_id: Conversation's ID as string
             
         Returns:
             Count of messages
         """
-        if not ObjectId.is_valid(conversation_id):
+        if not conversation_id:
             return 0
             
-        collection = await MessagesDatabase.get_collection()
-        count = await collection.count_documents({"conversation_id": ObjectId(conversation_id)})
+        table = MessagesDatabase.get_table()
         
-        return count
+        response = table.query(
+            KeyConditionExpression=Key("conversationId").eq(conversation_id),
+            Select="COUNT"
+        )
+        
+        return response.get("Count", 0)
     
     @staticmethod
     async def delete_messages_by_conversation(conversation_id: str) -> int:
@@ -174,18 +245,36 @@ class MessagesDatabase:
         Delete all messages in a conversation.
         
         Args:
-            conversation_id: Conversation's ObjectId as string
+            conversation_id: Conversation's ID as string
             
         Returns:
             Number of messages deleted
         """
-        if not ObjectId.is_valid(conversation_id):
+        if not conversation_id:
             return 0
             
-        collection = await MessagesDatabase.get_collection()
-        result = await collection.delete_many({"conversation_id": ObjectId(conversation_id)})
+        table = MessagesDatabase.get_table()
         
-        return result.deleted_count
+        # First get all messages
+        response = table.query(
+            KeyConditionExpression=Key("conversationId").eq(conversation_id),
+            ProjectionExpression="conversationId, messageId"
+        )
+        
+        deleted_count = 0
+        
+        # Delete each message
+        with table.batch_writer() as batch:
+            for item in response.get("Items", []):
+                batch.delete_item(
+                    Key={
+                        "conversationId": item["conversationId"],
+                        "messageId": item["messageId"]
+                    }
+                )
+                deleted_count += 1
+        
+        return deleted_count
     
     @staticmethod
     async def update_message_rag_references(
@@ -193,36 +282,35 @@ class MessagesDatabase:
         rag_references: List[str]
     ) -> Optional[MessageInDB]:
         """
-        Update RAG references for a message (used when AI responds with context).
+        Update RAG references for a message.
         
         Args:
-            message_id: Message's ObjectId as string
-            rag_references: List of knowledge base ObjectIds as strings
+            message_id: Message's ID as string
+            rag_references: List of knowledge base IDs as strings
             
         Returns:
             Updated MessageInDB or None
         """
-        if not ObjectId.is_valid(message_id):
+        if not message_id:
             return None
         
-        # Validate all reference IDs
-        rag_object_ids = []
-        for ref_id in rag_references:
-            if ObjectId.is_valid(ref_id):
-                rag_object_ids.append(ObjectId(ref_id))
+        message = await MessagesDatabase.get_message_by_id(message_id)
+        if not message:
+            return None
             
-        collection = await MessagesDatabase.get_collection()
+        table = MessagesDatabase.get_table()
         
-        result = await collection.find_one_and_update(
-            {"_id": ObjectId(message_id)},
-            {"$set": {"rag_references": rag_object_ids}},
-            return_document=True
-        )
-        
-        if result:
-            return MessageInDB(**result)
-        return None
-
+        try:
+            response = table.update_item(
+                Key={"conversationId": str(message.conversation_id), "messageId": message_id},
+                UpdateExpression="SET rag_references = :refs",
+                ExpressionAttributeValues={":refs": rag_references},
+                ReturnValues="ALL_NEW"
+            )
+            return MessagesDatabase._item_to_message(response.get("Attributes", {}))
+        except Exception:
+            return None
+    
     @staticmethod
     async def update_message_tts_audio(
         message_id: str,
@@ -232,38 +320,43 @@ class MessagesDatabase:
         audio_language_name: str
     ) -> Optional[MessageInDB]:
         """
-        Update TTS audio fields for a message (used to store generated TTS audio).
+        Update TTS audio fields for a message.
         
         Args:
-            message_id: Message's ObjectId as string
+            message_id: Message's ID as string
             audio_base64: Base64 encoded audio data
             audio_format: Audio format (e.g., 'mp3')
             audio_language: Language code (e.g., 'hi')
-            audio_language_name: Human-readable language name (e.g., 'Hindi')
+            audio_language_name: Human-readable language name
             
         Returns:
             Updated MessageInDB or None
         """
-        if not ObjectId.is_valid(message_id):
+        if not message_id:
+            return None
+        
+        message = await MessagesDatabase.get_message_by_id(message_id)
+        if not message:
             return None
             
-        collection = await MessagesDatabase.get_collection()
+        table = MessagesDatabase.get_table()
         
-        result = await collection.find_one_and_update(
-            {"_id": ObjectId(message_id)},
-            {"$set": {
-                "audio_base64": audio_base64,
-                "audio_format": audio_format,
-                "audio_language": audio_language,
-                "audio_language_name": audio_language_name
-            }},
-            return_document=True
-        )
-        
-        if result:
-            return MessageInDB(**result)
-        return None
-
+        try:
+            response = table.update_item(
+                Key={"conversationId": str(message.conversation_id), "messageId": message_id},
+                UpdateExpression="SET audio_base64 = :audio, audio_format = :format, audio_language = :lang, audio_language_name = :lang_name",
+                ExpressionAttributeValues={
+                    ":audio": audio_base64,
+                    ":format": audio_format,
+                    ":lang": audio_language,
+                    ":lang_name": audio_language_name
+                },
+                ReturnValues="ALL_NEW"
+            )
+            return MessagesDatabase._item_to_message(response.get("Attributes", {}))
+        except Exception:
+            return None
+    
     @staticmethod
     async def get_messages_for_sync(
         conversation_id: str,
@@ -272,60 +365,42 @@ class MessagesDatabase:
         """
         Get messages for sync (past N days, without audio fields).
         
-        This method is specifically designed for the /sync/pull endpoint.
-        It excludes audio data to reduce payload size.
-        
         Args:
-            conversation_id: Conversation's ObjectId as string
+            conversation_id: Conversation's ID as string
             days: Number of days to look back (default 15)
             
         Returns:
             List of message dicts without audio fields
         """
-        if not ObjectId.is_valid(conversation_id):
+        if not conversation_id:
             return []
             
-        collection = await MessagesDatabase.get_collection()
+        table = MessagesDatabase.get_table()
         
-        # Calculate date range (past N days)
-        from datetime import timedelta
+        # Calculate cutoff date
         cutoff_date = datetime.utcnow() - timedelta(days=days)
+        cutoff_iso = datetime_to_iso(cutoff_date)
         
-        # Projection to exclude audio fields
-        projection = {
-            "_id": 1,
-            "conversation_id": 1,
-            "profile_id": 1,
-            "role": 1,
-            "content": 1,
-            "content_translated": 1,
-            "timestamp": 1,
-            "rag_references": 1
-            # Explicitly NOT including: audio_url, audio_base64, audio_format, audio_language, audio_language_name
-        }
-        
-        # Query: messages in conversation created after cutoff date
-        cursor = collection.find(
-            {
-                "conversation_id": ObjectId(conversation_id),
-                "timestamp": {"$gte": cutoff_date}
-            },
-            projection
-        ).sort("timestamp", 1)  # Chronological order
+        # Query messages
+        response = table.query(
+            KeyConditionExpression=Key("conversationId").eq(conversation_id),
+            FilterExpression=Attr("timestamp").gte(cutoff_iso),
+            ScanIndexForward=True
+        )
         
         messages = []
-        async for doc in cursor:
-            # Convert ObjectIds to strings for JSON serialization
-            msg = {
-                "_id": str(doc["_id"]),
-                "conversation_id": str(doc["conversation_id"]),
-                "profile_id": str(doc["profile_id"]),
-                "role": doc["role"],
-                "content": doc["content"],
-                "content_translated": doc.get("content_translated"),
-                "timestamp": doc["timestamp"],
-                "rag_references": [str(ref) for ref in doc.get("rag_references", [])]
-            }
-            messages.append(msg)
+        for item in response.get("Items", []):
+            item = deserialize_from_dynamo(item)
+            # Exclude audio fields
+            messages.append({
+                "_id": item.get("messageId"),
+                "conversation_id": item.get("conversationId"),
+                "profile_id": item.get("profileId"),
+                "role": item.get("role"),
+                "content": item.get("content"),
+                "content_translated": item.get("content_translated"),
+                "timestamp": iso_to_datetime(item.get("timestamp")),
+                "rag_references": item.get("rag_references", [])
+            })
         
         return messages

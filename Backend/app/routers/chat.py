@@ -611,21 +611,8 @@ async def _stream_response(
                 
                 await ConversationsDatabase.update_conversation_timestamp(conversation_id)
                 
-                # Generate TTS audio if requested (after streaming completes)
-                audio_base64 = None
-                audio_format = None
-                audio_language = None
-                audio_language_name = None
-                
-                if message.include_audio:
-                    audio_base64, audio_format, audio_language, audio_language_name = await _generate_tts_audio(
-                        message=message,
-                        profile=profile,
-                        response_text=full_response.strip(),
-                        assistant_msg_id=str(assistant_msg.id)
-                    )
-                
-                # Send completion event with message metadata
+                # Send completion event with message metadata immediately
+                # TTS audio will be fetched separately via /messages/{id}/tts endpoint
                 complete_data = json.dumps({
                     "type": "message_complete",
                     "message": {
@@ -634,10 +621,11 @@ async def _stream_response(
                         "role": "assistant",
                         "content": full_response.strip(),
                         "timestamp": assistant_msg.timestamp.isoformat(),
-                        "audio_base64": audio_base64,
-                        "audio_format": audio_format,
-                        "audio_language": audio_language,
-                        "audio_language_name": audio_language_name,
+                        "audio_base64": None,
+                        "audio_format": None,
+                        "audio_language": None,
+                        "audio_language_name": None,
+                        "include_audio": message.include_audio  # Signal frontend to fetch TTS
                     }
                 })
                 yield f"data: {complete_data}\n\n"
@@ -785,6 +773,156 @@ async def _generate_tts_audio(
         logger.error(f"[TTS] Failed to generate audio: {tts_result.get('error')}")
     
     return audio_base64, audio_format, audio_language, audio_language_name
+
+
+# =============================================================================
+# Text-to-Speech (TTS) Endpoint - Separate Audio Generation
+# =============================================================================
+
+@router.post(
+    "/messages/{message_id}/tts",
+    status_code=status.HTTP_200_OK,
+    summary="Generate TTS audio for a message",
+    description="""
+    Generate text-to-speech audio for an existing message.
+    
+    This is a separate endpoint that allows the frontend to:
+    1. First receive the text response quickly via streaming
+    2. Then fetch TTS audio separately without blocking text display
+    
+    The audio is generated using the profile's preferred language.
+    """
+)
+async def generate_message_tts(
+    message_id: str,
+    slow_audio: bool = False,
+    profile_id: str = Depends(get_current_profile_id)
+):
+    """
+    Generate TTS audio for a specific message.
+    
+    Args:
+        message_id: The message ID to generate audio for
+        slow_audio: Whether to generate slower-paced audio
+        profile_id: Profile ID from token
+        
+    Returns:
+        Audio data (base64 encoded) with format and language info
+    """
+    logger.info(f"[TTS] Generating audio for message: {message_id}")
+    
+    # Get the message
+    message = await MessagesDatabase.get_message_by_id(message_id)
+    
+    if not message:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Message not found"
+        )
+    
+    # Verify message belongs to profile's conversation
+    conversation = await ConversationsDatabase.get_conversation_by_id(str(message.conversation_id))
+    if not conversation or str(conversation.profile_id) != profile_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied to this message"
+        )
+    
+    # Check if audio already exists for this message
+    if message.audio_base64:
+        logger.info(f"[TTS] Returning cached audio for message: {message_id}")
+        return {
+            "success": True,
+            "message_id": message_id,
+            "audio_base64": message.audio_base64,
+            "audio_format": message.audio_format or "mp3",
+            "audio_language": message.audio_language,
+            "audio_language_name": message.audio_language_name,
+            "cached": True
+        }
+    
+    # Get profile for language preference
+    profile = await ProfilesDatabase.get_profile_by_id(profile_id)
+    
+    # Determine TTS language
+    tts_language = "en"
+    if profile and profile.preferred_language:
+        language_mapping = {
+            "Hindi": "hi",
+            "English": "en",
+            "Bengali": "bn",
+            "Tamil": "ta",
+            "Telugu": "te",
+            "Marathi": "mr",
+            "Gujarati": "gu",
+            "Kannada": "kn",
+            "Malayalam": "ml",
+            "Punjabi": "pa",
+            "Urdu": "ur",
+            "Nepali": "ne",
+        }
+        tts_language = language_mapping.get(profile.preferred_language, "en")
+    
+    if tts_language not in TTS_SUPPORTED_LANGUAGES:
+        logger.warning(f"[TTS] Language '{tts_language}' not supported, falling back to English")
+        tts_language = "en"
+    
+    # Strip markdown formatting from text
+    tts_text = message.content
+    tts_text = re.sub(r'\*\*(.+?)\*\*', r'\1', tts_text)
+    tts_text = re.sub(r'__(.+?)__', r'\1', tts_text)
+    tts_text = re.sub(r'\*(.+?)\*', r'\1', tts_text)
+    tts_text = re.sub(r'_(.+?)_', r'\1', tts_text)
+    tts_text = re.sub(r'^\s*[\*\-\+]\s+', '', tts_text, flags=re.MULTILINE)
+    tts_text = re.sub(r'^\s*\d+\.\s+', '', tts_text, flags=re.MULTILINE)
+    tts_text = re.sub(r'^#+\s+', '', tts_text, flags=re.MULTILINE)
+    tts_text = re.sub(r'`([^`]+)`', r'\1', tts_text)
+    tts_text = re.sub(r'```[\s\S]*?```', '', tts_text)
+    tts_text = re.sub(r'^>\s*', '', tts_text, flags=re.MULTILINE)
+    tts_text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', tts_text)
+    tts_text = re.sub(r'!\[([^\]]*)\]\([^)]+\)', r'\1', tts_text)
+    tts_text = re.sub(r'^[\-\*_]{3,}\s*$', '', tts_text, flags=re.MULTILINE)
+    tts_text = re.sub(r'\n{3,}', '\n\n', tts_text)
+    tts_text = tts_text.strip()
+    
+    # Generate TTS
+    tts_result = tts_service.synthesize(
+        text=tts_text,
+        language=tts_language,
+        slow=slow_audio
+    )
+    
+    if not tts_result.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"TTS generation failed: {tts_result.get('error', 'Unknown error')}"
+        )
+    
+    audio_base64 = tts_result.get("audio_base64")
+    audio_format = tts_result.get("format", "mp3")
+    audio_language = tts_result.get("language")
+    audio_language_name = tts_result.get("language_name")
+    
+    # Save to database for caching
+    await MessagesDatabase.update_message_tts_audio(
+        message_id=message_id,
+        audio_base64=audio_base64,
+        audio_format=audio_format,
+        audio_language=audio_language,
+        audio_language_name=audio_language_name
+    )
+    
+    logger.info(f"[TTS] Audio generated successfully for message: {message_id}")
+    
+    return {
+        "success": True,
+        "message_id": message_id,
+        "audio_base64": audio_base64,
+        "audio_format": audio_format,
+        "audio_language": audio_language,
+        "audio_language_name": audio_language_name,
+        "cached": False
+    }
 
 
 # =============================================================================

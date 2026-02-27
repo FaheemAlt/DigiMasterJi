@@ -1,5 +1,6 @@
 # DigiMasterJi Backend Dependencies
 # ==================================
+# AWS Migration Version
 
 # FastAPI and web framework
 fastapi
@@ -8,14 +9,18 @@ python-multipart
 httpx
 aiofiles
 
+# AWS Lambda ASGI Adapter
+mangum
+
+# AWS SDK
+boto3
+botocore
+
 # Web Search
 duckduckgo-search>=8.0.0
 
-# Database
-motor
-
 # Data validation
-pydantic
+pydantic[email]
 pydantic-settings
 
 # Authentication
@@ -27,27 +32,26 @@ bcrypt==4.3.0
 python-dotenv
 
 # Background Tasks (Daily Quiz Generation)
+# Note: For Lambda, use EventBridge instead of APScheduler
 APScheduler
 
-# AI/ML Dependencies
-# ------------------
-
-torch
-
-# Speech-to-Text (OpenAI Whisper)
-openai-whisper
+# Speech-to-Text (OpenAI Whisper) - Keep for local STT fallback
+# openai-whisper  # Commented out - use Deepgram in production
 
 # Text-to-Speech (Google TTS)
 gTTS
 
-# RAG Pipeline
-sentence-transformers
-PyMuPDF
-tiktoken
+# RAG Pipeline - PDF Processing
+# Note: Embeddings now handled by Bedrock Titan V2
+PyMuPDF==1.24.11
+tiktoken==0.7.0
+
+# MongoDB Atlas (for Bedrock KB embeddings stats)
+pymongo[srv]
 
 # Audio processing
 soundfile
-numpy
+numpy<2.0
 
 # Development tools
 pytest

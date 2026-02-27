@@ -23,12 +23,15 @@ from app.models.sync import (
     SyncConversationResponse,
     SyncMessageResponse,
     SyncGamificationResponse,
-    SyncLearningPreferencesResponse
+    SyncLearningPreferencesResponse,
+    SyncQuizResponse,
+    SyncQuizQuestionResponse
 )
 from app.database.users import UsersDatabase
 from app.database.profiles import ProfilesDatabase
 from app.database.conversations import ConversationsDatabase
 from app.database.messages import MessagesDatabase
+from app.database.quizzes import QuizzesDatabase
 from app.utils.security import decode_access_token
 
 # Sync configuration from environment
@@ -140,6 +143,7 @@ async def sync_pull(
     # Initialize counters
     total_conversations = 0
     total_messages = 0
+    total_quizzes = 0
     
     # Get all profiles for this user
     profiles_db = await ProfilesDatabase.get_profiles_by_user(current_user_id)
@@ -211,6 +215,41 @@ async def sync_pull(
             voice_enabled=profile.learning_preferences.voice_enabled if profile.learning_preferences else True
         )
         
+        # Fetch quizzes for this profile (past N days)
+        quizzes_db = await QuizzesDatabase.get_all_quizzes_for_profile(profile_id, days=days)
+        quizzes_response = []
+        
+        for quiz in quizzes_db:
+            # Convert questions to response model
+            questions_response = [
+                SyncQuizQuestionResponse(
+                    question_id=q.question_id if hasattr(q, 'question_id') else q.get('question_id', ''),
+                    question_text=q.question_text if hasattr(q, 'question_text') else q.get('question_text', ''),
+                    options=q.options if hasattr(q, 'options') else q.get('options', []),
+                    correct_answer=q.correct_answer if hasattr(q, 'correct_answer') else q.get('correct_answer', ''),
+                    user_answer=q.user_answer if hasattr(q, 'user_answer') else q.get('user_answer')
+                )
+                for q in (quiz.questions if quiz.status == "completed" else [])
+            ]
+            
+            quiz_response = SyncQuizResponse(
+                _id=str(quiz.id),
+                profile_id=str(quiz.profile_id),
+                topic=quiz.topic,
+                difficulty=quiz.difficulty,
+                quiz_date=quiz.quiz_date,
+                created_at=quiz.created_at,
+                status=quiz.status,
+                score=quiz.score,
+                completed_at=quiz.completed_at,
+                xp_earned=quiz.xp_earned,
+                questions=questions_response,
+                is_backlog=getattr(quiz, 'is_backlog', False) or (quiz.quiz_date < datetime.now().date())
+            )
+            quizzes_response.append(quiz_response)
+        
+        total_quizzes += len(quizzes_response)
+        
         # Build profile response
         profile_response = SyncProfileResponse(
             _id=str(profile.id),
@@ -224,7 +263,8 @@ async def sync_pull(
             learning_preferences=learning_prefs_response,
             created_at=profile.created_at,
             updated_at=profile.updated_at,
-            conversations=conversations_response
+            conversations=conversations_response,
+            quizzes=quizzes_response
         )
         
         profiles_response.append(profile_response)
@@ -241,5 +281,6 @@ async def sync_pull(
         total_profiles=len(profiles_response),
         total_conversations=total_conversations,
         total_messages=total_messages,
+        total_quizzes=total_quizzes,
         sync_period_days=days
     )

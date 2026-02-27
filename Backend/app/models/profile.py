@@ -8,23 +8,18 @@ Represents individual learner profiles under a master account (Netflix-style).
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List
 from datetime import datetime
-from bson import ObjectId
 
 
 class PyObjectId(str):
-    """Custom ObjectId type for Pydantic v2 models."""
+    """Custom ID type for Pydantic v2 models (DynamoDB compatible)."""
     @classmethod
     def __get_pydantic_core_schema__(cls, _source_type, _handler):
         from pydantic_core import core_schema
         
         def validate(value, _info=None):
-            if isinstance(value, ObjectId):
-                return str(value)
-            if isinstance(value, str):
-                if ObjectId.is_valid(value):
-                    return value
-                raise ValueError("Invalid ObjectId")
-            raise ValueError("Invalid ObjectId type")
+            if isinstance(value, str) and len(value) > 0:
+                return value
+            raise ValueError("Invalid ID - must be a non-empty string")
         
         return core_schema.with_info_plain_validator_function(
             validate,
@@ -252,7 +247,6 @@ class ProfileInDB(ProfileBase):
         populate_by_name = True
         from_attributes = True
         json_encoders = {
-            ObjectId: str,
             datetime: lambda v: v.isoformat()
         }
         json_schema_extra = {

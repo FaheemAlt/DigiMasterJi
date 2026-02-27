@@ -1,28 +1,90 @@
 """
-Profiles Database Operations
-============================
-CRUD operations for the student profiles collection.
+Profiles Database Operations - DynamoDB
+========================================
+CRUD operations for the student profiles table.
+
+DynamoDB Table: digimasterji-profiles
+- Partition Key: userId (String)
+- Sort Key: profileId (String)
+- GSI: profileId-index (Partition Key: profileId)
+
+DigiMasterJi - AWS Migration
 """
 
-from motor.motor_asyncio import AsyncIOMotorClient
-from bson import ObjectId
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, date
+from boto3.dynamodb.conditions import Key, Attr
 
 from app.models.profile import ProfileCreate, ProfileInDB, ProfileUpdate, Gamification, LearningPreferences, StoredLearningInsights
-from app.database.mongodb import get_database
+from app.database.dynamo import (
+    get_table,
+    generate_id,
+    TABLE_PROFILES,
+    datetime_to_iso,
+    iso_to_datetime,
+    serialize_for_dynamo,
+    deserialize_from_dynamo
+)
 
 
 class ProfilesDatabase:
-    """Database operations for profiles collection."""
+    """Database operations for profiles table."""
     
-    COLLECTION_NAME = "profiles"
+    TABLE_NAME = TABLE_PROFILES
     
     @staticmethod
-    async def get_collection():
-        """Get profiles collection from database."""
-        client = await get_database()
-        return client["digimasterji"][ProfilesDatabase.COLLECTION_NAME]
+    def get_table():
+        """Get profiles table."""
+        return get_table(ProfilesDatabase.TABLE_NAME)
+    
+    @staticmethod
+    def _item_to_profile(item: dict) -> ProfileInDB:
+        """Convert DynamoDB item to ProfileInDB model."""
+        item = deserialize_from_dynamo(item)
+        
+        # Parse gamification
+        gamification_data = item.get("gamification", {})
+        gamification = Gamification(
+            xp=gamification_data.get("xp", 0),
+            current_streak_days=gamification_data.get("current_streak_days", 0),
+            last_activity_date=iso_to_datetime(gamification_data.get("last_activity_date")),
+            badges=gamification_data.get("badges", [])
+        )
+        
+        # Parse learning preferences
+        learning_prefs_data = item.get("learning_preferences", {})
+        learning_preferences = LearningPreferences(
+            voice_enabled=learning_prefs_data.get("voice_enabled", True)
+        )
+        
+        # Parse learning insights if present
+        learning_insights = None
+        if item.get("learning_insights"):
+            insights_data = item["learning_insights"]
+            learning_insights = StoredLearningInsights(
+                overall_assessment=insights_data.get("overall_assessment"),
+                subject_insights=insights_data.get("subject_insights", []),
+                weak_topics_explanation=insights_data.get("weak_topics_explanation", []),
+                strengths=insights_data.get("strengths", []),
+                weekly_goals=insights_data.get("weekly_goals", []),
+                motivation_message=insights_data.get("motivation_message"),
+                generated_at=iso_to_datetime(insights_data.get("generated_at"))
+            )
+        
+        return ProfileInDB(
+            _id=item.get("profileId"),
+            master_user_id=item.get("userId"),
+            name=item.get("name"),
+            age=item.get("age"),
+            grade_level=item.get("grade_level"),
+            preferred_language=item.get("preferred_language"),
+            avatar=item.get("avatar", "default_avatar.png"),
+            gamification=gamification,
+            learning_preferences=learning_preferences,
+            learning_insights=learning_insights,
+            created_at=iso_to_datetime(item.get("created_at")),
+            updated_at=iso_to_datetime(item.get("updated_at"))
+        )
     
     @staticmethod
     async def create_profile(master_user_id: str, profile_data: ProfileCreate) -> ProfileInDB:
@@ -36,13 +98,17 @@ class ProfilesDatabase:
         Returns:
             ProfileInDB: Created profile document
         """
-        if not ObjectId.is_valid(master_user_id):
+        if not master_user_id:
             raise ValueError("Invalid master_user_id")
             
-        collection = await ProfilesDatabase.get_collection()
+        table = ProfilesDatabase.get_table()
         
-        profile_dict = {
-            "master_user_id": ObjectId(master_user_id),
+        profile_id = generate_id()
+        now = datetime.utcnow()
+        
+        item = {
+            "userId": master_user_id,
+            "profileId": profile_id,
             "name": profile_data.name,
             "age": profile_data.age,
             "grade_level": profile_data.grade_level,
@@ -57,34 +123,39 @@ class ProfilesDatabase:
             "learning_preferences": {
                 "voice_enabled": True
             },
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow()
+            "created_at": datetime_to_iso(now),
+            "updated_at": datetime_to_iso(now)
         }
         
-        result = await collection.insert_one(profile_dict)
-        profile_dict["_id"] = result.inserted_id
+        table.put_item(Item=serialize_for_dynamo(item))
         
-        return ProfileInDB(**profile_dict)
+        return ProfilesDatabase._item_to_profile(item)
     
     @staticmethod
     async def get_profile_by_id(profile_id: str) -> Optional[ProfileInDB]:
         """
-        Get profile by ID.
+        Get profile by ID using GSI.
         
         Args:
-            profile_id: Profile's ObjectId as string
+            profile_id: Profile's ID as string
             
         Returns:
             ProfileInDB or None
         """
-        if not ObjectId.is_valid(profile_id):
+        if not profile_id:
             return None
             
-        collection = await ProfilesDatabase.get_collection()
-        profile_doc = await collection.find_one({"_id": ObjectId(profile_id)})
+        table = ProfilesDatabase.get_table()
         
-        if profile_doc:
-            return ProfileInDB(**profile_doc)
+        # Query using GSI on profileId
+        response = table.query(
+            IndexName="profileId-index",
+            KeyConditionExpression=Key("profileId").eq(profile_id)
+        )
+        
+        items = response.get("Items", [])
+        if items:
+            return ProfilesDatabase._item_to_profile(items[0])
         return None
     
     @staticmethod
@@ -98,15 +169,18 @@ class ProfilesDatabase:
         Returns:
             List of ProfileInDB
         """
-        if not ObjectId.is_valid(master_user_id):
+        if not master_user_id:
             return []
             
-        collection = await ProfilesDatabase.get_collection()
-        cursor = collection.find({"master_user_id": ObjectId(master_user_id)})
+        table = ProfilesDatabase.get_table()
+        
+        response = table.query(
+            KeyConditionExpression=Key("userId").eq(master_user_id)
+        )
         
         profiles = []
-        async for doc in cursor:
-            profiles.append(ProfileInDB(**doc))
+        for item in response.get("Items", []):
+            profiles.append(ProfilesDatabase._item_to_profile(item))
         
         return profiles
     
@@ -116,42 +190,68 @@ class ProfilesDatabase:
         Update profile information.
         
         Args:
-            profile_id: Profile's ObjectId as string
+            profile_id: Profile's ID as string
             profile_update: Fields to update
             
         Returns:
             Updated ProfileInDB or None
         """
-        if not ObjectId.is_valid(profile_id):
+        if not profile_id:
+            return None
+        
+        # First get the profile to get the userId (partition key)
+        profile = await ProfilesDatabase.get_profile_by_id(profile_id)
+        if not profile:
             return None
             
-        collection = await ProfilesDatabase.get_collection()
+        table = ProfilesDatabase.get_table()
         
-        # Build update dictionary with only provided fields
-        update_data = {"updated_at": datetime.utcnow()}
+        # Build update expression
+        update_parts = ["updated_at = :updated_at"]
+        expression_values = {":updated_at": datetime_to_iso(datetime.utcnow())}
+        expression_names = {}
         
         if profile_update.name is not None:
-            update_data["name"] = profile_update.name
+            update_parts.append("#name = :name")
+            expression_values[":name"] = profile_update.name
+            expression_names["#name"] = "name"
+            
         if profile_update.age is not None:
-            update_data["age"] = profile_update.age
+            update_parts.append("age = :age")
+            expression_values[":age"] = profile_update.age
+            
         if profile_update.grade_level is not None:
-            update_data["grade_level"] = profile_update.grade_level
+            update_parts.append("grade_level = :grade")
+            expression_values[":grade"] = profile_update.grade_level
+            
         if profile_update.preferred_language is not None:
-            update_data["preferred_language"] = profile_update.preferred_language
+            update_parts.append("preferred_language = :lang")
+            expression_values[":lang"] = profile_update.preferred_language
+            
         if profile_update.avatar is not None:
-            update_data["avatar"] = profile_update.avatar
+            update_parts.append("avatar = :avatar")
+            expression_values[":avatar"] = profile_update.avatar
+            
         if profile_update.learning_preferences is not None:
-            update_data["learning_preferences"] = profile_update.learning_preferences.model_dump()
+            update_parts.append("learning_preferences = :prefs")
+            expression_values[":prefs"] = serialize_for_dynamo(profile_update.learning_preferences.model_dump())
         
-        result = await collection.find_one_and_update(
-            {"_id": ObjectId(profile_id)},
-            {"$set": update_data},
-            return_document=True
-        )
+        update_expression = "SET " + ", ".join(update_parts)
         
-        if result:
-            return ProfileInDB(**result)
-        return None
+        try:
+            kwargs = {
+                "Key": {"userId": str(profile.master_user_id), "profileId": profile_id},
+                "UpdateExpression": update_expression,
+                "ExpressionAttributeValues": expression_values,
+                "ReturnValues": "ALL_NEW"
+            }
+            if expression_names:
+                kwargs["ExpressionAttributeNames"] = expression_names
+                
+            response = table.update_item(**kwargs)
+            return ProfilesDatabase._item_to_profile(response.get("Attributes", {}))
+        except Exception:
+            return None
     
     @staticmethod
     async def delete_profile(profile_id: str) -> bool:
@@ -159,22 +259,32 @@ class ProfilesDatabase:
         Delete a profile from the database.
         
         Args:
-            profile_id: Profile's ObjectId as string
+            profile_id: Profile's ID as string
             
         Returns:
             True if deleted, False otherwise
         """
-        if not ObjectId.is_valid(profile_id):
+        if not profile_id:
+            return False
+        
+        # First get the profile to get the userId (partition key)
+        profile = await ProfilesDatabase.get_profile_by_id(profile_id)
+        if not profile:
             return False
             
-        collection = await ProfilesDatabase.get_collection()
-        result = await collection.delete_one({"_id": ObjectId(profile_id)})
+        table = ProfilesDatabase.get_table()
         
-        return result.deleted_count > 0
+        try:
+            table.delete_item(
+                Key={"userId": str(profile.master_user_id), "profileId": profile_id}
+            )
+            return True
+        except Exception:
+            return False
     
     @staticmethod
     async def update_gamification(
-        profile_id: str, 
+        profile_id: str,
         xp_delta: int = 0,
         streak_delta: int = 0,
         new_badges: Optional[List[str]] = None
@@ -183,7 +293,7 @@ class ProfilesDatabase:
         Update gamification stats for a profile.
         
         Args:
-            profile_id: Profile's ObjectId as string
+            profile_id: Profile's ID as string
             xp_delta: XP points to add (can be negative)
             streak_delta: Streak days to add/subtract
             new_badges: New badges to add
@@ -191,68 +301,86 @@ class ProfilesDatabase:
         Returns:
             Updated ProfileInDB or None
         """
-        if not ObjectId.is_valid(profile_id):
+        if not profile_id:
+            return None
+        
+        profile = await ProfilesDatabase.get_profile_by_id(profile_id)
+        if not profile:
             return None
             
-        collection = await ProfilesDatabase.get_collection()
+        table = ProfilesDatabase.get_table()
         
-        update_ops = {
-            "$set": {
-                "gamification.last_activity_date": datetime.utcnow(),
-                "updated_at": datetime.utcnow()
-            }
+        # Build update expression
+        update_parts = [
+            "gamification.last_activity_date = :last_activity",
+            "updated_at = :updated_at"
+        ]
+        expression_values = {
+            ":last_activity": datetime_to_iso(datetime.utcnow()),
+            ":updated_at": datetime_to_iso(datetime.utcnow())
         }
         
         if xp_delta != 0:
-            update_ops["$inc"] = {"gamification.xp": xp_delta}
+            new_xp = profile.gamification.xp + xp_delta
+            update_parts.append("gamification.xp = :xp")
+            expression_values[":xp"] = new_xp
         
         if streak_delta != 0:
-            if "$inc" not in update_ops:
-                update_ops["$inc"] = {}
-            update_ops["$inc"]["gamification.current_streak_days"] = streak_delta
+            new_streak = max(0, profile.gamification.current_streak_days + streak_delta)
+            update_parts.append("gamification.current_streak_days = :streak")
+            expression_values[":streak"] = new_streak
         
         if new_badges:
-            update_ops["$addToSet"] = {
-                "gamification.badges": {"$each": new_badges}
-            }
+            current_badges = profile.gamification.badges or []
+            updated_badges = list(set(current_badges + new_badges))
+            update_parts.append("gamification.badges = :badges")
+            expression_values[":badges"] = updated_badges
         
-        result = await collection.find_one_and_update(
-            {"_id": ObjectId(profile_id)},
-            update_ops,
-            return_document=True
-        )
+        update_expression = "SET " + ", ".join(update_parts)
         
-        if result:
-            return ProfileInDB(**result)
-        return None
+        try:
+            response = table.update_item(
+                Key={"userId": str(profile.master_user_id), "profileId": profile_id},
+                UpdateExpression=update_expression,
+                ExpressionAttributeValues=expression_values,
+                ReturnValues="ALL_NEW"
+            )
+            return ProfilesDatabase._item_to_profile(response.get("Attributes", {}))
+        except Exception:
+            return None
     
     @staticmethod
     async def update_last_activity(profile_id: str) -> bool:
         """
-        Update profile's last activity date (for streak calculation).
+        Update profile's last activity date.
         
         Args:
-            profile_id: Profile's ObjectId as string
+            profile_id: Profile's ID as string
             
         Returns:
             True if successful, False otherwise
         """
-        if not ObjectId.is_valid(profile_id):
+        if not profile_id:
+            return False
+        
+        profile = await ProfilesDatabase.get_profile_by_id(profile_id)
+        if not profile:
             return False
             
-        collection = await ProfilesDatabase.get_collection()
+        table = ProfilesDatabase.get_table()
         
-        result = await collection.update_one(
-            {"_id": ObjectId(profile_id)},
-            {
-                "$set": {
-                    "gamification.last_activity_date": datetime.utcnow(),
-                    "updated_at": datetime.utcnow()
+        try:
+            table.update_item(
+                Key={"userId": str(profile.master_user_id), "profileId": profile_id},
+                UpdateExpression="SET gamification.last_activity_date = :last, updated_at = :updated",
+                ExpressionAttributeValues={
+                    ":last": datetime_to_iso(datetime.utcnow()),
+                    ":updated": datetime_to_iso(datetime.utcnow())
                 }
-            }
-        )
-        
-        return result.modified_count > 0
+            )
+            return True
+        except Exception:
+            return False
     
     @staticmethod
     async def count_profiles_by_user(master_user_id: str) -> int:
@@ -265,13 +393,17 @@ class ProfilesDatabase:
         Returns:
             Count of profiles
         """
-        if not ObjectId.is_valid(master_user_id):
+        if not master_user_id:
             return 0
             
-        collection = await ProfilesDatabase.get_collection()
-        count = await collection.count_documents({"master_user_id": ObjectId(master_user_id)})
+        table = ProfilesDatabase.get_table()
         
-        return count
+        response = table.query(
+            KeyConditionExpression=Key("userId").eq(master_user_id),
+            Select="COUNT"
+        )
+        
+        return response.get("Count", 0)
     
     @staticmethod
     async def update_quiz_stats(
@@ -283,36 +415,31 @@ class ProfilesDatabase:
         Update profile after quiz completion (XP and streak).
         
         Args:
-            profile_id: Profile's ObjectId as string
+            profile_id: Profile's ID as string
             xp_earned: XP points earned from quiz
-            maintain_streak: Whether the quiz was completed on time to maintain streak
+            maintain_streak: Whether the quiz was completed on time
             
         Returns:
             Updated ProfileInDB or None
         """
-        if not ObjectId.is_valid(profile_id):
+        if not profile_id:
             return None
-            
-        collection = await ProfilesDatabase.get_collection()
         
-        # Get current profile to check streak
         profile = await ProfilesDatabase.get_profile_by_id(profile_id)
         if not profile:
             return None
+            
+        table = ProfilesDatabase.get_table()
         
-        update_ops = {
-            "$inc": {"gamification.xp": xp_earned},
-            "$set": {
-                "gamification.last_activity_date": datetime.utcnow(),
-                "updated_at": datetime.utcnow()
-            }
-        }
+        # Calculate new XP
+        new_xp = profile.gamification.xp + xp_earned
         
         # Handle streak logic
-        from datetime import date, timedelta
+        from datetime import timedelta
         
         last_activity = profile.gamification.last_activity_date
         today = date.today()
+        new_streak = profile.gamification.current_streak_days
         
         if maintain_streak:
             if last_activity:
@@ -320,81 +447,97 @@ class ProfilesDatabase:
                 days_diff = (today - last_date).days
                 
                 if days_diff == 1:
-                    # Consecutive day - increment streak
-                    update_ops["$inc"]["gamification.current_streak_days"] = 1
+                    new_streak += 1
                 elif days_diff == 0:
-                    # Same day - keep streak
-                    pass
+                    pass  # Same day
                 else:
-                    # Streak broken - reset to 1
-                    update_ops["$set"]["gamification.current_streak_days"] = 1
+                    new_streak = 1
             else:
-                # First activity - start streak
-                update_ops["$set"]["gamification.current_streak_days"] = 1
+                new_streak = 1
         else:
-            # Quiz not attempted on time - reset streak
-            update_ops["$set"]["gamification.current_streak_days"] = 0
+            new_streak = 0
         
-        result = await collection.find_one_and_update(
-            {"_id": ObjectId(profile_id)},
-            update_ops,
-            return_document=True
-        )
-        
-        if result:
-            return ProfileInDB(**result)
-        return None
+        try:
+            response = table.update_item(
+                Key={"userId": str(profile.master_user_id), "profileId": profile_id},
+                UpdateExpression="SET gamification.xp = :xp, gamification.current_streak_days = :streak, gamification.last_activity_date = :last, updated_at = :updated",
+                ExpressionAttributeValues={
+                    ":xp": new_xp,
+                    ":streak": new_streak,
+                    ":last": datetime_to_iso(datetime.utcnow()),
+                    ":updated": datetime_to_iso(datetime.utcnow())
+                },
+                ReturnValues="ALL_NEW"
+            )
+            return ProfilesDatabase._item_to_profile(response.get("Attributes", {}))
+        except Exception:
+            return None
     
     @staticmethod
     async def get_all_profile_ids() -> List[str]:
         """
-        Get all profile IDs for background tasks (e.g., daily quiz generation).
+        Get all profile IDs for background tasks.
         
         Returns:
             List of profile ID strings
         """
-        collection = await ProfilesDatabase.get_collection()
+        table = ProfilesDatabase.get_table()
         
-        cursor = collection.find({}, {"_id": 1})
         profile_ids = []
+        last_evaluated_key = None
         
-        async for doc in cursor:
-            profile_ids.append(str(doc["_id"]))
+        while True:
+            if last_evaluated_key:
+                response = table.scan(
+                    ProjectionExpression="profileId",
+                    ExclusiveStartKey=last_evaluated_key
+                )
+            else:
+                response = table.scan(ProjectionExpression="profileId")
+            
+            for item in response.get("Items", []):
+                profile_ids.append(item.get("profileId"))
+            
+            last_evaluated_key = response.get("LastEvaluatedKey")
+            if not last_evaluated_key:
+                break
         
         return profile_ids
-
+    
     @staticmethod
     async def reset_streak(profile_id: str) -> Optional[ProfileInDB]:
         """
         Reset a profile's streak to 0.
-        Called when streak is broken (no quiz completed).
         
         Args:
-            profile_id: Profile's ObjectId as string
+            profile_id: Profile's ID as string
             
         Returns:
             Updated ProfileInDB or None
         """
-        if not ObjectId.is_valid(profile_id):
+        if not profile_id:
+            return None
+        
+        profile = await ProfilesDatabase.get_profile_by_id(profile_id)
+        if not profile:
             return None
             
-        collection = await ProfilesDatabase.get_collection()
+        table = ProfilesDatabase.get_table()
         
-        result = await collection.find_one_and_update(
-            {"_id": ObjectId(profile_id)},
-            {
-                "$set": {
-                    "gamification.current_streak_days": 0,
-                    "updated_at": datetime.utcnow()
-                }
-            },
-            return_document=True
-        )
-        
-        if result:
-            return ProfileInDB(**result)
-        return None
-
+        try:
+            response = table.update_item(
+                Key={"userId": str(profile.master_user_id), "profileId": profile_id},
+                UpdateExpression="SET gamification.current_streak_days = :streak, updated_at = :updated",
+                ExpressionAttributeValues={
+                    ":streak": 0,
+                    ":updated": datetime_to_iso(datetime.utcnow())
+                },
+                ReturnValues="ALL_NEW"
+            )
+            return ProfilesDatabase._item_to_profile(response.get("Attributes", {}))
+        except Exception:
+            return None
+    
     @staticmethod
     async def update_quiz_stats_v2(
         profile_id: str,
@@ -405,13 +548,8 @@ class ProfilesDatabase:
         """
         Update profile after quiz completion with proper streak logic.
         
-        Streak rules:
-        - Only today's quiz can increment/maintain streak
-        - Backlog quizzes give XP but don't affect streak
-        - Streak resets to 0 if quiz missed
-        
         Args:
-            profile_id: Profile's ObjectId as string
+            profile_id: Profile's ID as string
             xp_earned: XP points earned from quiz
             is_today_quiz: Whether this is today's daily quiz
             is_backlog: Whether this is a backlog quiz
@@ -419,127 +557,123 @@ class ProfilesDatabase:
         Returns:
             Updated ProfileInDB or None
         """
-        if not ObjectId.is_valid(profile_id):
+        if not profile_id:
             return None
-            
-        collection = await ProfilesDatabase.get_collection()
         
-        # Get current profile to check streak
         profile = await ProfilesDatabase.get_profile_by_id(profile_id)
         if not profile:
             return None
+            
+        table = ProfilesDatabase.get_table()
         
-        update_ops = {
-            "$inc": {"gamification.xp": xp_earned},
-            "$set": {
-                "gamification.last_activity_date": datetime.utcnow(),
-                "updated_at": datetime.utcnow()
-            }
-        }
+        # Calculate new XP
+        new_xp = profile.gamification.xp + xp_earned
+        new_streak = profile.gamification.current_streak_days
         
         # Only update streak for today's quiz (not backlog)
         if is_today_quiz and not is_backlog:
-            from datetime import date as date_type
+            from datetime import timedelta
             
             last_activity = profile.gamification.last_activity_date
-            today = date_type.today()
+            today = date.today()
             
             if last_activity:
                 last_date = last_activity.date() if isinstance(last_activity, datetime) else last_activity
                 days_diff = (today - last_date).days
                 
                 if days_diff == 1:
-                    # Consecutive day - increment streak
-                    update_ops["$inc"]["gamification.current_streak_days"] = 1
+                    new_streak += 1
                 elif days_diff == 0:
-                    # Same day - keep streak (first quiz completion today starts streak at 1)
                     if profile.gamification.current_streak_days == 0:
-                        update_ops["$set"]["gamification.current_streak_days"] = 1
+                        new_streak = 1
                 else:
-                    # Streak broken - reset to 1
-                    update_ops["$set"]["gamification.current_streak_days"] = 1
+                    new_streak = 1
             else:
-                # First activity - start streak
-                update_ops["$set"]["gamification.current_streak_days"] = 1
+                new_streak = 1
         
-        # For backlog quizzes, don't modify streak at all (just give XP)
-        
-        result = await collection.find_one_and_update(
-            {"_id": ObjectId(profile_id)},
-            update_ops,
-            return_document=True
-        )
-        
-        if result:
-            return ProfileInDB(**result)
-        return None
-
+        try:
+            response = table.update_item(
+                Key={"userId": str(profile.master_user_id), "profileId": profile_id},
+                UpdateExpression="SET gamification.xp = :xp, gamification.current_streak_days = :streak, gamification.last_activity_date = :last, updated_at = :updated",
+                ExpressionAttributeValues={
+                    ":xp": new_xp,
+                    ":streak": new_streak,
+                    ":last": datetime_to_iso(datetime.utcnow()),
+                    ":updated": datetime_to_iso(datetime.utcnow())
+                },
+                ReturnValues="ALL_NEW"
+            )
+            return ProfilesDatabase._item_to_profile(response.get("Attributes", {}))
+        except Exception:
+            return None
+    
     @staticmethod
     async def update_learning_insights(
         profile_id: str,
         insights_data: Dict[str, Any]
     ) -> Optional[ProfileInDB]:
         """
-        Update profile's learning insights (auto-generated after quiz).
+        Update profile's learning insights.
         
         Args:
-            profile_id: Profile's ObjectId as string
-            insights_data: Learning insights dictionary from quiz_summary_service
-                          This is stored directly to preserve the LLM output format
-                          that the frontend expects.
+            profile_id: Profile's ID as string
+            insights_data: Learning insights dictionary
             
         Returns:
             Updated ProfileInDB or None
         """
-        if not ObjectId.is_valid(profile_id):
+        if not profile_id:
+            return None
+        
+        profile = await ProfilesDatabase.get_profile_by_id(profile_id)
+        if not profile:
             return None
             
-        collection = await ProfilesDatabase.get_collection()
+        table = ProfilesDatabase.get_table()
         
-        # Store the insights data directly - preserve the full structure
-        # The frontend expects fields like: overall_assessment, subject_insights,
-        # weak_topics_explanation, strengths, weekly_goals, etc.
-        # Add/update the generated_at timestamp
         insights_doc = {
             **insights_data,
-            "generated_at": datetime.utcnow()
+            "generated_at": datetime_to_iso(datetime.utcnow())
         }
         
-        result = await collection.find_one_and_update(
-            {"_id": ObjectId(profile_id)},
-            {
-                "$set": {
-                    "learning_insights": insights_doc,
-                    "updated_at": datetime.utcnow()
-                }
-            },
-            return_document=True
-        )
-        
-        if result:
-            return ProfileInDB(**result)
-        return None
-
+        try:
+            response = table.update_item(
+                Key={"userId": str(profile.master_user_id), "profileId": profile_id},
+                UpdateExpression="SET learning_insights = :insights, updated_at = :updated",
+                ExpressionAttributeValues={
+                    ":insights": serialize_for_dynamo(insights_doc),
+                    ":updated": datetime_to_iso(datetime.utcnow())
+                },
+                ReturnValues="ALL_NEW"
+            )
+            return ProfilesDatabase._item_to_profile(response.get("Attributes", {}))
+        except Exception:
+            return None
+    
     @staticmethod
     async def get_learning_insights(profile_id: str) -> Optional[Dict[str, Any]]:
         """
         Get stored learning insights for a profile.
         
         Args:
-            profile_id: Profile's ObjectId as string
+            profile_id: Profile's ID as string
             
         Returns:
             Learning insights dictionary or None
         """
-        if not ObjectId.is_valid(profile_id):
+        if not profile_id:
             return None
-            
-        collection = await ProfilesDatabase.get_collection()
-        profile_doc = await collection.find_one(
-            {"_id": ObjectId(profile_id)},
-            {"learning_insights": 1}
-        )
         
-        if profile_doc and profile_doc.get("learning_insights"):
-            return profile_doc["learning_insights"]
-        return None
+        profile = await ProfilesDatabase.get_profile_by_id(profile_id)
+        if not profile or not profile.learning_insights:
+            return None
+        
+        return {
+            "overall_assessment": profile.learning_insights.overall_assessment,
+            "subject_insights": profile.learning_insights.subject_insights,
+            "weak_topics_explanation": profile.learning_insights.weak_topics_explanation,
+            "strengths": profile.learning_insights.strengths,
+            "weekly_goals": profile.learning_insights.weekly_goals,
+            "motivation_message": profile.learning_insights.motivation_message,
+            "generated_at": datetime_to_iso(profile.learning_insights.generated_at)
+        }

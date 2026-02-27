@@ -15,7 +15,7 @@ from datetime import date, datetime, timedelta
 from app.models.quiz import (
     QuizResponse, QuizQuestionsResponse, QuizSubmission,
     QuizSubmissionResponse, QuizCreate, QuizRevisionResponse, QuizRevisionQuestion,
-    SyncQuizResponse, QuizSummaryResponse, LearningInsightsResponse
+    QuizSummaryResponse, LearningInsightsResponse
 )
 from app.database.quizzes import QuizzesDatabase
 from app.database.profiles import ProfilesDatabase
@@ -1056,47 +1056,6 @@ async def cleanup_old_quizzes(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to cleanup quizzes: {str(e)}"
-        )
-
-
-@router.get("/sync/all", response_model=List[SyncQuizResponse], status_code=status.HTTP_200_OK)
-async def get_quizzes_for_sync(
-    days: int = 30,
-    profile_id: str = Depends(get_current_profile_id)
-):
-    """
-    Get all quizzes for offline sync (last 30 days by default).
-    
-    Includes all questions with answers for completed quizzes.
-    """
-    try:
-        logger.info(f"[QUIZ] Fetching quizzes for sync, profile: {profile_id}, days: {days}")
-        
-        quizzes = await QuizzesDatabase.get_all_quizzes_for_profile(profile_id, days)
-        
-        return [
-            SyncQuizResponse(
-                _id=str(quiz.id),
-                profile_id=str(quiz.profile_id),
-                topic=quiz.topic,
-                difficulty=quiz.difficulty,
-                quiz_date=quiz.quiz_date,
-                created_at=quiz.created_at,
-                status=quiz.status,
-                score=quiz.score,
-                completed_at=quiz.completed_at,
-                xp_earned=quiz.xp_earned,
-                questions=quiz.questions if quiz.status == "completed" else [],
-                is_backlog=getattr(quiz, 'is_backlog', False) or quiz.quiz_date < date.today()
-            )
-            for quiz in quizzes
-        ]
-        
-    except Exception as e:
-        logger.error(f"[QUIZ] Error fetching quizzes for sync: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to fetch quizzes: {str(e)}"
         )
 
 

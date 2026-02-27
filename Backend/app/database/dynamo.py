@@ -28,24 +28,52 @@ class DynamoDBConnection:
     def get_resource(cls) -> boto3.resource:
         """Get or create DynamoDB resource."""
         if cls._resource is None:
-            cls._resource = boto3.resource(
-                'dynamodb',
-                region_name=os.getenv("AWS_REGION", "ap-south-1"),
-                aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-                aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY")
-            )
+            # Detect if running on Lambda
+            is_lambda = os.getenv("AWS_LAMBDA_FUNCTION_NAME") is not None
+            region = os.getenv("AWS_REGION", "us-east-1")
+            
+            if is_lambda:
+                # On Lambda, always use IAM role (ignore .env credentials)
+                cls._resource = boto3.resource('dynamodb', region_name=region)
+            else:
+                # Locally, use credentials from env vars if available
+                access_key = os.getenv("AWS_ACCESS_KEY_ID")
+                secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+                
+                if access_key and secret_key:
+                    cls._resource = boto3.resource(
+                        'dynamodb',
+                        region_name=region,
+                        aws_access_key_id=access_key,
+                        aws_secret_access_key=secret_key
+                    )
+                else:
+                    cls._resource = boto3.resource('dynamodb', region_name=region)
         return cls._resource
     
     @classmethod
     def get_client(cls) -> boto3.client:
         """Get or create DynamoDB client."""
         if cls._client is None:
-            cls._client = boto3.client(
-                'dynamodb',
-                region_name=os.getenv("AWS_REGION", "ap-south-1"),
-                aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-                aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY")
-            )
+            is_lambda = os.getenv("AWS_LAMBDA_FUNCTION_NAME") is not None
+            region = os.getenv("AWS_REGION", "us-east-1")
+            
+            if is_lambda:
+                # On Lambda, always use IAM role
+                cls._client = boto3.client('dynamodb', region_name=region)
+            else:
+                access_key = os.getenv("AWS_ACCESS_KEY_ID")
+                secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+                
+                if access_key and secret_key:
+                    cls._client = boto3.client(
+                        'dynamodb',
+                        region_name=region,
+                        aws_access_key_id=access_key,
+                        aws_secret_access_key=secret_key
+                    )
+                else:
+                    cls._client = boto3.client('dynamodb', region_name=region)
         return cls._client
 
 

@@ -13,8 +13,8 @@ Great choice! MongoDB Atlas has a generous free tier (512 MB storage, shared clu
 | **Lambda**                        | Requests                     | 50K invocations              | $0.20/M (1M free)                   | **$0.00**        |
 |                                   | Duration                     | 50K × 500ms × 1GB            | $0.0000166667/GB-s (400K GB-s free) | **$0.00**        |
 | **API Gateway**                   | HTTP API Requests            | 50K requests                 | $1.00/M (1M free)                   | **$0.00**        |
-| **Bedrock - Llama 3.1 8B**        | Input Tokens                 | 5M tokens/month              | $0.00022/1K tokens                  | **$1.10**        |
-|                                   | Output Tokens                | 2M tokens/month              | $0.00022/1K tokens                  | **$0.44**        |
+| **Bedrock - Amazon Nova Lite**     | Input Tokens                 | 5M tokens/month              | $0.00006/1K tokens                  | **$0.30**        |
+|                                   | Output Tokens                | 2M tokens/month              | $0.00024/1K tokens                  | **$0.48**        |
 | **Bedrock - Titan Embeddings V2** | Input Tokens                 | 2M tokens/month              | $0.00002/1K tokens                  | **$0.04**        |
 | **MongoDB Atlas**                 | Vector Search (M0 Free Tier) | 512 MB storage, shared       | Free                                | **$0.00**        |
 | **ECR**                           | Storage                      | 2 GB (container image)       | $0.10/GB                            | **$0.20**        |
@@ -24,7 +24,7 @@ Great choice! MongoDB Atlas has a generous free tier (512 MB storage, shared clu
 | **CloudWatch**                    | Logs Ingestion               | 2 GB                         | $0.50/GB (5GB free)                 | **$0.00**        |
 |                                   | Logs Storage                 | 2 GB                         | $0.03/GB                            | **$0.06**        |
 |                                   | Alarms                       | 5 alarms                     | $0.10/alarm (10 free)               | **$0.00**        |
-|                                   |                              |                              | **TOTAL**                           | **~$2.23/month** |
+|                                   |                              |                              | **TOTAL**                           | **~$1.47/month** |
 
 ---
 
@@ -39,8 +39,8 @@ Great choice! MongoDB Atlas has a generous free tier (512 MB storage, shared clu
 | **Lambda**                        | Requests                      | 3M invocations            | $0.20/M (1M free)               | **$0.40**          |
 |                                   | Duration                      | 3M × 500ms × 1GB          | $0.0000166667/GB-s              | **$25.00**         |
 | **API Gateway**                   | HTTP API Requests             | 3M requests               | $1.00/M                         | **$2.00**          |
-| **Bedrock - Llama 3.1 8B**        | Input Tokens                  | 100M tokens/month         | $0.00022/1K tokens              | **$22.00**         |
-|                                   | Output Tokens                 | 40M tokens/month          | $0.00022/1K tokens              | **$8.80**          |
+| **Bedrock - Amazon Nova Lite**     | Input Tokens                  | 100M tokens/month         | $0.00006/1K tokens              | **$6.00**          |
+|                                   | Output Tokens                 | 40M tokens/month          | $0.00024/1K tokens              | **$9.60**          |
 | **Bedrock - Titan Embeddings V2** | Input Tokens                  | 20M tokens/month          | $0.00002/1K tokens              | **$0.40**          |
 | **MongoDB Atlas**                 | Vector Search (M10 Dedicated) | 10 GB storage, dedicated  | ~$57/month                      | **$57.00**         |
 | **ECR**                           | Storage                       | 5 GB (multi-version)      | $0.10/GB                        | **$0.50**          |
@@ -51,7 +51,7 @@ Great choice! MongoDB Atlas has a generous free tier (512 MB storage, shared clu
 |                                   | Logs Storage                  | 20 GB (1 month retention) | $0.03/GB                        | **$0.60**          |
 |                                   | Alarms                        | 15 alarms                 | $0.10/alarm                     | **$0.50**          |
 |                                   | Metrics                       | 50 custom metrics         | $0.30/metric (10 free)          | **$12.00**         |
-|                                   |                               |                           | **TOTAL**                       | **~$148.50/month** |
+|                                   |                               |                           | **TOTAL**                       | **~$133.30/month** |
 
 ---
 
@@ -63,12 +63,12 @@ Great choice! MongoDB Atlas has a generous free tier (512 MB storage, shared clu
 | **Storage (S3)**                  | $0.19      | $2.55         |
 | **Compute (Lambda)**              | $0.00      | $25.40        |
 | **API (Gateway)**                 | $0.00      | $2.00         |
-| **AI/ML (Bedrock)**               | $1.58      | $31.20        |
+| **AI/ML (Bedrock)**               | $0.82      | $16.00        |
 | **Vector Search (MongoDB Atlas)** | $0.00      | $57.00        |
 | **Container (ECR)**               | $0.20      | $0.50         |
 | **Scheduling (EventBridge)**      | $0.01      | $0.50         |
 | **Monitoring (CloudWatch)**       | $0.06      | $20.60        |
-| **TOTAL**                         | **~$2.23** | **~$148.50**  |
+| **TOTAL**                         | **~$1.47** | **~$133.30**  |
 
 ---
 
@@ -76,8 +76,8 @@ Great choice! MongoDB Atlas has a generous free tier (512 MB storage, shared clu
 
 | Scenario          | With OpenSearch Serverless | With MongoDB Atlas | Savings     |
 | ----------------- | -------------------------- | ------------------ | ----------- |
-| **Prototype**     | ~$358/month                | **~$2.23/month**   | **99.4%** ↓ |
-| **Early Release** | ~$1,244/month              | **~$148.50/month** | **88%** ↓   |
+| **Prototype**     | ~$358/month                | **~$1.47/month**   | **99.6%** ↓ |
+| **Early Release** | ~$1,244/month              | **~$133.30/month** | **89.3%** ↓   |
 
 ---
 
@@ -107,4 +107,4 @@ Great choice! MongoDB Atlas has a generous free tier (512 MB storage, shared clu
 
 ---
 
-This makes your **prototype essentially free** (under $3/month) and your **early product release very affordable** at ~$150/month! 🎉
+This makes your **prototype essentially free** (under $1.50/month) and your **early product release very affordable** at ~$133/month! 🎉

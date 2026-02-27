@@ -91,16 +91,6 @@ export const quizzesApi = {
   },
 
   /**
-   * Get all quizzes for offline sync (last 30 days)
-   * @param {number} days - Number of days (default: 30)
-   */
-  getQuizzesForSync: (days = 30) => {
-    return apiClient.get('/quizzes/sync/all', {
-      params: { days },
-    });
-  },
-
-  /**
    * Check current streak status
    */
   checkStreakStatus: () => {

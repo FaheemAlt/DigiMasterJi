@@ -14,6 +14,11 @@ import {
   Layers,
   ArrowRight,
   RefreshCw,
+  CloudUpload,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Loader2,
 } from 'lucide-react';
 import { adminApi, SUBJECT_OPTIONS } from '../../api/admin';
 import { Card, Button } from '../../components/ui';
@@ -22,7 +27,9 @@ export default function AdminDashboardPage() {
   const navigate = useNavigate();
   const [stats, setStats] = useState(null);
   const [ragInfo, setRagInfo] = useState(null);
+  const [syncJobs, setSyncJobs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [syncLoading, setSyncLoading] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -33,17 +40,69 @@ export default function AdminDashboardPage() {
     setLoading(true);
     setError('');
     try {
-      const [statsRes, ragRes] = await Promise.all([
+      const [statsRes, ragRes, syncRes] = await Promise.all([
         adminApi.getStats(),
         adminApi.getRagInfo(),
+        adminApi.listSyncJobs(5),
       ]);
       setStats(statsRes.data);
       setRagInfo(ragRes.data);
+      setSyncJobs(syncRes.data?.jobs || []);
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to load dashboard data');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleTriggerSync = async () => {
+    setSyncLoading(true);
+    try {
+      await adminApi.triggerSync();
+      // Refresh sync jobs after triggering
+      const syncRes = await adminApi.listSyncJobs(5);
+      setSyncJobs(syncRes.data?.jobs || []);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to trigger sync');
+    } finally {
+      setSyncLoading(false);
+    }
+  };
+
+  const getJobStatusIcon = (status) => {
+    switch (status) {
+      case 'COMPLETE':
+        return <CheckCircle2 className="w-4 h-4 text-emerald-400" />;
+      case 'FAILED':
+        return <XCircle className="w-4 h-4 text-rose-400" />;
+      case 'IN_PROGRESS':
+        return <Loader2 className="w-4 h-4 text-amber-400 animate-spin" />;
+      case 'STARTING':
+        return <Clock className="w-4 h-4 text-blue-400" />;
+      default:
+        return <Clock className="w-4 h-4 text-white/40" />;
+    }
+  };
+
+  const getJobStatusColor = (status) => {
+    switch (status) {
+      case 'COMPLETE':
+        return 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
+      case 'FAILED':
+        return 'text-rose-400 bg-rose-500/10 border-rose-500/20';
+      case 'IN_PROGRESS':
+        return 'text-amber-400 bg-amber-500/10 border-amber-500/20';
+      case 'STARTING':
+        return 'text-blue-400 bg-blue-500/10 border-blue-500/20';
+      default:
+        return 'text-white/40 bg-white/5 border-white/10';
+    }
+  };
+
+  const formatTimestamp = (isoString) => {
+    if (!isoString) return 'N/A';
+    const date = new Date(isoString);
+    return date.toLocaleString();
   };
 
   const StatCard = ({ icon: Icon, label, value, subValue, color, onClick }) => (
@@ -246,6 +305,81 @@ export default function AdminDashboardPage() {
             </div>
           </Card>
         </div>
+      </div>
+
+      {/* Knowledge Base Sync Status */}
+      <div className="mt-8">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-semibold text-white">Knowledge Base Sync Status</h2>
+          <Button
+            variant="secondary"
+            icon={syncLoading ? Loader2 : CloudUpload}
+            onClick={handleTriggerSync}
+            disabled={syncLoading}
+            className={syncLoading ? 'animate-pulse' : ''}
+          >
+            {syncLoading ? 'Syncing...' : 'Trigger Sync'}
+          </Button>
+        </div>
+
+        <Card className="overflow-hidden">
+          {syncJobs.length === 0 ? (
+            <div className="p-8 text-center">
+              <CloudUpload className="w-12 h-12 text-white/20 mx-auto mb-4" />
+              <p className="text-white/60">No sync jobs found</p>
+              <p className="text-white/40 text-sm mt-1">
+                Upload a document or trigger sync to start indexing
+              </p>
+            </div>
+          ) : (
+            <div className="divide-y divide-white/10">
+              {syncJobs.map((job) => (
+                <div key={job.jobId} className="p-4 hover:bg-white/5 transition-colors">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      {getJobStatusIcon(job.status)}
+                      <div>
+                        <p className="text-white/80 font-mono text-sm">
+                          {job.jobId?.slice(0, 12)}...
+                        </p>
+                        <p className="text-white/40 text-xs">
+                          Started: {formatTimestamp(job.startedAt)}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <div className="text-right">
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium border ${getJobStatusColor(job.status)}`}>
+                          {job.status}
+                        </span>
+                      </div>
+                      {job.statistics && (
+                        <div className="text-right text-xs">
+                          <p className="text-emerald-400">
+                            +{job.statistics.numberOfNewDocumentsIndexed || 0} indexed
+                          </p>
+                          <p className="text-white/40">
+                            {job.statistics.numberOfDocumentsScanned || 0} scanned
+                          </p>
+                          {job.statistics.numberOfDocumentsFailed > 0 && (
+                            <p className="text-rose-400">
+                              {job.statistics.numberOfDocumentsFailed} failed
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+
+        <p className="text-white/40 text-xs mt-2">
+          💡 Documents are searchable once sync status is <span className="text-emerald-400">COMPLETE</span>.
+          Sync typically takes 5-30 minutes depending on document size.
+        </p>
       </div>
 
       {/* Subject Breakdown */}

@@ -508,7 +508,7 @@ export function useChatService() {
           onComplete: (completeMessage) => {
             finalAiResponse = completeMessage;
 
-            // Replace streaming message with final message
+            // Replace streaming message with final message (without audio initially)
             setMessages((prev) => {
               const withoutStreaming = prev.filter(
                 (m) => m._id !== streamingMessageId && m._id !== userMessage._id
@@ -516,9 +516,47 @@ export function useChatService() {
               return [
                 ...withoutStreaming,
                 { ...userMessage, _id: `user-${Date.now()}` },
-                { ...completeMessage, isStreaming: false },
+                { ...completeMessage, isStreaming: false, isLoadingAudio: completeMessage.include_audio },
               ];
             });
+
+            // If audio was requested, fetch TTS separately so text appears immediately
+            if (completeMessage.include_audio && completeMessage._id) {
+              console.log('[TTS] Fetching audio for message:', completeMessage._id);
+              chatApi.generateTTS(completeMessage._id, slowAudio)
+                .then((response) => {
+                  const ttsData = response.data;
+                  if (ttsData.success) {
+                    console.log('[TTS] Audio received, updating message');
+                    // Update the message with audio data
+                    setMessages((prev) =>
+                      prev.map((m) =>
+                        m._id === completeMessage._id
+                          ? {
+                              ...m,
+                              audio_base64: ttsData.audio_base64,
+                              audio_format: ttsData.audio_format,
+                              audio_language: ttsData.audio_language,
+                              audio_language_name: ttsData.audio_language_name,
+                              isLoadingAudio: false,
+                            }
+                          : m
+                      )
+                    );
+                  }
+                })
+                .catch((err) => {
+                  console.error('[TTS] Failed to generate audio:', err);
+                  // Remove loading state on error
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m._id === completeMessage._id
+                        ? { ...m, isLoadingAudio: false }
+                        : m
+                    )
+                  );
+                });
+            }
 
             // Store messages locally for offline access (non-blocking)
             syncService.addLocalMessage({ ...userMessage, _id: `user-${Date.now()}` }).catch(console.error);

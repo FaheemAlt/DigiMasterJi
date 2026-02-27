@@ -12,7 +12,8 @@ import {
   AlertCircle,
   WifiOff,
   Zap,
-  Globe
+  Globe,
+  Cpu
 } from 'lucide-react';
 import { useAudioRecorder } from '../../hooks/useAudioRecorder';
 
@@ -36,6 +37,7 @@ export default function ChatInput({
   enableTTS = true, // Default TTS enabled
   onTTSToggle,
   isOffline = false, // Offline mode - disables input
+  isUsingBrowserAI = false, // Using Browser AI (offline but model ready)
   isDataSaverMode = false, // Data Saver mode - disables input to save data
 }) {
   const [message, setMessage] = useState('');
@@ -244,6 +246,20 @@ export default function ChatInput({
         </motion.div>
       )}
 
+      {/* Browser AI Mode Info */}
+      {isUsingBrowserAI && !isOffline && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="absolute -top-14 left-0 right-0 mx-4"
+        >
+          <div className="flex items-center gap-2 px-4 py-2 bg-orange-500/20 border border-orange-500/30 rounded-xl text-orange-400 text-sm">
+            <Cpu className="w-4 h-4 flex-shrink-0" />
+            <span>Using Browser AI - Voice features unavailable offline.</span>
+          </div>
+        </motion.div>
+      )}
+
       {/* Data Saver Mode Warning */}
       {isDataSaverMode && !isOffline && (
         <motion.div
@@ -332,17 +348,17 @@ export default function ChatInput({
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
           onClick={toggleTTS}
-          disabled={isDataSaverMode || isOffline}
+          disabled={isDataSaverMode || isOffline || isUsingBrowserAI}
           className={`
             p-2 rounded-xl transition-all
-            ${(isDataSaverMode || isOffline)
+            ${(isDataSaverMode || isOffline || isUsingBrowserAI)
               ? 'bg-white/5 text-white/20 cursor-not-allowed'
               : ttsEnabled
                 ? 'bg-emerald-500/20 text-emerald-400'
                 : 'bg-white/10 text-white/40 hover:text-white/60'
             }
           `}
-          title={isDataSaverMode ? 'Disabled in Data Saver mode' : ttsEnabled ? 'Voice responses ON' : 'Voice responses OFF'}
+          title={isDataSaverMode ? 'Disabled in Data Saver mode' : isUsingBrowserAI ? 'Voice unavailable offline' : ttsEnabled ? 'Voice responses ON' : 'Voice responses OFF'}
         >
           {ttsEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
         </motion.button>
@@ -355,7 +371,7 @@ export default function ChatInput({
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
             onKeyDown={handleKeyDown}
-            placeholder={isOffline ? "You're offline..." : isDataSaverMode ? "Data Saver is ON..." : placeholder}
+            placeholder={isOffline ? "You're offline..." : isUsingBrowserAI ? "Ask Browser AI..." : isDataSaverMode ? "Data Saver is ON..." : placeholder}
             disabled={disabled || isDataSaverMode}
             rows={1}
             className="
@@ -383,16 +399,16 @@ export default function ChatInput({
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={handleMicClick}
-            disabled={disabled || permissionStatus === 'denied' || isDataSaverMode || isOffline}
+            disabled={disabled || permissionStatus === 'denied' || isDataSaverMode || isOffline || isUsingBrowserAI}
             className={`
               p-2.5 rounded-xl transition-all
-              ${(permissionStatus === 'denied' || isDataSaverMode || isOffline)
+              ${(permissionStatus === 'denied' || isDataSaverMode || isOffline || isUsingBrowserAI)
                 ? 'bg-white/5 text-white/20 cursor-not-allowed'
                 : 'bg-white/10 text-white/70 hover:bg-white/20 hover:text-white'
               }
               disabled:opacity-50 disabled:cursor-not-allowed
             `}
-            title={isDataSaverMode ? 'Disabled in Data Saver mode' : permissionStatus === 'denied' ? 'Microphone access denied' : 'Voice message'}
+            title={isDataSaverMode ? 'Disabled in Data Saver mode' : isUsingBrowserAI ? 'Voice unavailable offline' : permissionStatus === 'denied' ? 'Microphone access denied' : 'Voice message'}
           >
             <Mic className="w-5 h-5" />
           </motion.button>

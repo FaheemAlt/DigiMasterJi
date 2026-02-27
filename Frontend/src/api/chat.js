@@ -201,6 +201,21 @@ export const chatApi = {
   },
 
   /**
+   * Generate TTS audio for a specific message.
+   * This is called separately after streaming completes so text appears immediately.
+   * Backend: POST /chat/messages/{message_id}/tts
+   * 
+   * @param {string} messageId - The message ID to generate audio for
+   * @param {boolean} slowAudio - Whether to generate slower-paced audio
+   * @returns {Promise} - { success, message_id, audio_base64, audio_format, audio_language, audio_language_name, cached }
+   */
+  generateTTS: (messageId, slowAudio = false) => {
+    return apiClient.post(`/chat/messages/${messageId}/tts?slow_audio=${slowAudio}`, {}, {
+      timeout: 60000, // 60 seconds timeout for TTS generation
+    });
+  },
+
+  /**
    * Upload voice query (Speech to Text processing)
    * Uses form-data
    * Backend: POST /chat/{conversation_id}/audio

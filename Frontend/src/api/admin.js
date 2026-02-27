@@ -80,6 +80,32 @@ export const adminApi = {
   getRagInfo: () => {
     return apiClient.get('/admin/rag-info');
   },
+
+  /**
+   * Manually trigger Knowledge Base sync/ingestion
+   * @returns {Promise} - { success, status, jobId, knowledgeBaseId }
+   */
+  triggerSync: () => {
+    return apiClient.post('/admin/sync');
+  },
+
+  /**
+   * List recent ingestion jobs with status
+   * @param {number} limit - Max number of jobs to return (default 10)
+   * @returns {Promise} - { success, jobs, knowledgeBaseId, dataSourceId, total }
+   */
+  listSyncJobs: (limit = 10) => {
+    return apiClient.get('/admin/sync/jobs', { params: { limit } });
+  },
+
+  /**
+   * Get detailed status of a specific ingestion job
+   * @param {string} jobId - The ingestion job ID
+   * @returns {Promise} - { success, jobId, status, statistics, startedAt, updatedAt, failureReasons }
+   */
+  getSyncJobStatus: (jobId) => {
+    return apiClient.get(`/admin/sync/jobs/${jobId}`);
+  },
 };
 
 /**

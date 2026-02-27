@@ -133,7 +133,8 @@ export default function ChatWindow({
             disabled={isLoading || isSending || isInputDisabled || isLowBandwidth}
             placeholder={getPlaceholder()}
             enableTTS={enableTTS}
-            isOffline={!isOnline}
+            isOffline={isInputDisabled}
+            isUsingBrowserAI={!isOnline && isOfflineModelReady}
             isDataSaverMode={isLowBandwidth}
           />
         </div>
@@ -269,7 +270,8 @@ export default function ChatWindow({
           disabled={isLoading || isSending || isInputDisabled || isLowBandwidth}
           placeholder={getPlaceholder()}
           enableTTS={enableTTS}
-          isOffline={!isOnline}
+          isOffline={isInputDisabled}
+          isUsingBrowserAI={!isOnline && isOfflineModelReady}
           isDataSaverMode={isLowBandwidth}
         />
       </div>

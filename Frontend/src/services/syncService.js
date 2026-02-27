@@ -14,11 +14,9 @@
 
 import { db } from '../db';
 import { syncApi } from '../api/sync';
-import { quizzesApi } from '../api/quizzes';
 
 // Sync configuration - can be overridden via environment variable
 const SYNC_DAYS = parseInt(import.meta.env.VITE_SYNC_DAYS || '180', 10); // Number of days of messages to sync
-const QUIZ_SYNC_DAYS = 30; // Keep quizzes for 30 days
 const SYNC_META_KEY = 'lastSync';
 
 /**
@@ -128,13 +126,10 @@ class SyncService {
         throw new Error(data.message || 'Sync failed');
       }
 
-      console.log(`[Sync] Received: ${data.total_profiles} profiles, ${data.total_conversations} conversations, ${data.total_messages} messages`);
+      console.log(`[Sync] Received: ${data.total_profiles} profiles, ${data.total_conversations} conversations, ${data.total_messages} messages, ${data.total_quizzes || 0} quizzes`);
 
-      // Store data locally
+      // Store data locally (includes profiles, conversations, messages, and quizzes)
       await this._storeDataLocally(data);
-
-      // Sync quizzes separately for each profile
-      await this._syncQuizzes(data.profiles);
 
       // Update sync metadata
       await db.syncMeta.put({
@@ -144,6 +139,7 @@ class SyncService {
         totalProfiles: data.total_profiles,
         totalConversations: data.total_conversations,
         totalMessages: data.total_messages,
+        totalQuizzes: data.total_quizzes || 0,
         userId: data.user_id,
       });
 
@@ -157,6 +153,7 @@ class SyncService {
           profiles: data.total_profiles,
           conversations: data.total_conversations,
           messages: data.total_messages,
+          quizzes: data.total_quizzes || 0,
         }
       });
 
@@ -165,6 +162,7 @@ class SyncService {
         profiles: data.total_profiles,
         conversations: data.total_conversations,
         messages: data.total_messages,
+        quizzes: data.total_quizzes || 0,
         syncTimestamp: data.sync_timestamp,
       };
 
@@ -192,11 +190,14 @@ class SyncService {
    */
   async _storeDataLocally(data) {
     // Use transaction for atomic operations
-    await db.transaction('rw', [db.profiles, db.conversations, db.messages], async () => {
+    await db.transaction('rw', [db.profiles, db.conversations, db.messages, db.quizzes], async () => {
       // Clear existing data first (full sync)
       await db.profiles.clear();
       await db.conversations.clear();
       await db.messages.clear();
+      await db.quizzes.clear();
+
+      let totalQuizzes = 0;
 
       // Store profiles
       for (const profile of data.profiles) {
@@ -253,57 +254,31 @@ class SyncService {
             await db.messages.put(messageRecord);
           }
         }
-      }
-    });
-  }
 
-  /**
-   * Sync quizzes for all profiles
-   * @param {Array} profiles - Array of profile objects
-   */
-  async _syncQuizzes(profiles) {
-    try {
-      console.log('[Sync] Syncing quizzes...');
-      
-      // Clear existing quizzes first
-      await db.quizzes.clear();
-      
-      let totalQuizzes = 0;
-      
-      for (const profile of profiles) {
-        try {
-          // Fetch quizzes for this profile
-          const response = await quizzesApi.getQuizzesForSync(QUIZ_SYNC_DAYS);
-          const quizzes = response.data || [];
+        // Store quizzes for this profile (now included in sync response)
+        for (const quiz of profile.quizzes || []) {
+          const quizRecord = {
+            _id: quiz._id,
+            profile_id: quiz.profile_id,
+            topic: quiz.topic,
+            difficulty: quiz.difficulty,
+            quiz_date: quiz.quiz_date,
+            created_at: quiz.created_at,
+            status: quiz.status,
+            score: quiz.score,
+            completed_at: quiz.completed_at,
+            xp_earned: quiz.xp_earned,
+            questions: quiz.questions || [],
+            is_backlog: quiz.is_backlog || false,
+          };
           
-          for (const quiz of quizzes) {
-            const quizRecord = {
-              _id: quiz._id,
-              profile_id: quiz.profile_id,
-              topic: quiz.topic,
-              difficulty: quiz.difficulty,
-              quiz_date: quiz.quiz_date,
-              created_at: quiz.created_at,
-              status: quiz.status,
-              score: quiz.score,
-              completed_at: quiz.completed_at,
-              xp_earned: quiz.xp_earned,
-              questions: quiz.questions || [],
-              is_backlog: quiz.is_backlog || false,
-            };
-            
-            await db.quizzes.put(quizRecord);
-            totalQuizzes++;
-          }
-        } catch (err) {
-          console.error(`[Sync] Error syncing quizzes for profile ${profile._id}:`, err);
+          await db.quizzes.put(quizRecord);
+          totalQuizzes++;
         }
       }
-      
-      console.log(`[Sync] Synced ${totalQuizzes} quizzes`);
-    } catch (err) {
-      console.error('[Sync] Error syncing quizzes:', err);
-    }
+
+      console.log(`[Sync] Stored ${totalQuizzes} quizzes locally`);
+    });
   }
 
   /**

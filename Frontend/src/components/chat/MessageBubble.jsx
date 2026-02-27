@@ -10,12 +10,12 @@ import AudioPlayer from './AudioPlayer';
  */
 function DiagramRenderer({ diagram }) {
   const [expanded, setExpanded] = useState(true); // Default to expanded for better visibility
-  
+
   if (!diagram || !diagram.content) return null;
-  
+
   const isSvg = diagram.type === 'svg';
   const sizeKb = diagram.size_bytes ? (diagram.size_bytes / 1024).toFixed(1) : null;
-  
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -45,11 +45,11 @@ function DiagramRenderer({ diagram }) {
           {expanded ? '⬆ Collapse' : '⬇ Expand'}
         </button>
       </div>
-      
+
       {/* Diagram Content */}
-      <motion.div 
+      <motion.div
         initial={false}
-        animate={{ 
+        animate={{
           height: expanded ? 'auto' : '100px',
           opacity: expanded ? 1 : 0.7
         }}
@@ -58,7 +58,7 @@ function DiagramRenderer({ diagram }) {
       >
         {isSvg ? (
           // SVG Diagram - render inline with better sizing
-          <div 
+          <div
             className="bg-slate-900/60 rounded-xl p-4 overflow-auto border border-white/5"
             dangerouslySetInnerHTML={{ __html: diagram.content }}
             style={{
@@ -71,7 +71,7 @@ function DiagramRenderer({ diagram }) {
           />
         ) : (
           // ASCII Art - render in pre tag with better styling
-          <pre 
+          <pre
             className="bg-slate-900/60 rounded-xl p-4 text-sm font-mono text-emerald-300 overflow-auto whitespace-pre border border-white/5"
             style={{
               lineHeight: '1.4',
@@ -84,14 +84,14 @@ function DiagramRenderer({ diagram }) {
           </pre>
         )}
       </motion.div>
-      
+
       {/* Diagram Type Badge */}
       {diagram.diagram_type && (
         <div className="mt-3 flex items-center gap-2">
           <span className={`
             text-xs px-3 py-1 rounded-full font-medium
-            ${isSvg 
-              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' 
+            ${isSvg
+              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
               : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
             }
           `}>
@@ -111,8 +111,8 @@ function DiagramRenderer({ diagram }) {
  * Displays individual chat messages with different styles for user/assistant
  * Includes integrated audio player for TTS responses
  */
-export default function MessageBubble({ 
-  message, 
+export default function MessageBubble({
+  message,
   isUser = false,
   isTyping = false,
   showAvatar = true,
@@ -142,9 +142,9 @@ export default function MessageBubble({
     }
     const date = new Date(dateStr);
     if (isNaN(date.getTime())) return '';
-    
-    return date.toLocaleTimeString('en-IN', { 
-      hour: 'numeric', 
+
+    return date.toLocaleTimeString('en-IN', {
+      hour: 'numeric',
       minute: '2-digit',
       hour12: true,
       timeZone: 'Asia/Kolkata'
@@ -166,8 +166,8 @@ export default function MessageBubble({
           transition={{ delay: 0.1, type: 'spring', stiffness: 200 }}
           className={`
             flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center
-            ${isUser 
-              ? 'bg-gradient-to-br from-violet-500 to-indigo-600' 
+            ${isUser
+              ? 'bg-gradient-to-br from-violet-500 to-indigo-600'
               : 'bg-gradient-to-br from-emerald-400 to-teal-500'
             }
             shadow-lg
@@ -187,8 +187,8 @@ export default function MessageBubble({
         <div
           className={`
             relative px-4 py-3 rounded-2xl
-            ${isUser 
-              ? 'bg-gradient-to-br from-violet-600 to-indigo-600 text-white rounded-tr-sm' 
+            ${isUser
+              ? 'bg-gradient-to-br from-violet-600 to-indigo-600 text-white rounded-tr-sm'
               : 'bg-white/10 backdrop-blur-sm border border-white/10 text-white rounded-tl-sm'
             }
           `}
@@ -264,9 +264,9 @@ export default function MessageBubble({
         {!isUser && !isTyping && (message.audio_url || message.audio_base64) && showAudioPlayer && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
-            animate={{ 
-              opacity: audioExpanded ? 1 : 0.9, 
-              height: 'auto' 
+            animate={{
+              opacity: audioExpanded ? 1 : 0.9,
+              height: 'auto'
             }}
             className="mt-2 w-full max-w-full overflow-hidden"
             style={{ contain: 'layout' }}
@@ -293,7 +293,7 @@ export default function MessageBubble({
                 />
               </div>
             )}
-            
+
             {/* Toggle expand button */}
             {/* <button
               onClick={() => setAudioExpanded(!audioExpanded)}
@@ -304,13 +304,29 @@ export default function MessageBubble({
           </motion.div>
         )}
 
+        {/* Audio Loading Indicator - Show while TTS is being generated */}
+        {!isUser && !isTyping && message.isLoadingAudio && !message.audio_base64 && showAudioPlayer && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="mt-2 flex items-center gap-2 text-sm text-white/60"
+          >
+            <div className="flex items-center gap-1">
+              <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
+              <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }} />
+              <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" style={{ animationDelay: '0.4s' }} />
+            </div>
+            <span>Generating audio...</span>
+          </motion.div>
+        )}
+
         {/* Message Meta & Actions */}
         {!isTyping && (
           <div className={`flex items-center gap-2 mt-1 px-1 ${isUser ? 'flex-row-reverse' : ''}`}>
             <span className="text-xs text-white/40">
               {formatTime(message.timestamp)}
             </span>
-            
+
             {/* Action Buttons (only for assistant messages) */}
             {!isUser && (
               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -325,7 +341,7 @@ export default function MessageBubble({
                     <Copy className="w-3.5 h-3.5 text-white/40 hover:text-white/70" />
                   )}
                 </button>
-                
+
                 {/* Audio toggle button (if audio available but player hidden) */}
                 {(message.audio_url || message.audio_base64) && !showAudioPlayer && onPlayAudio && (
                   <button

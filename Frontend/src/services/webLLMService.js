@@ -39,6 +39,8 @@ class WebLLMService {
      */
     subscribe(listener) {
         this.listeners.add(listener);
+        // Immediately notify with current state so new subscribers get the current status
+        listener(this.getState());
         return () => this.listeners.delete(listener);
     }
 

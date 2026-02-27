@@ -261,8 +261,19 @@ export default function ChatPage() {
           <div className="flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-violet-400" />
             <span className="font-semibold text-white">DigiMasterJi</span>
-            {/* Offline Model Indicator - Mobile */}
-            {isUsingOfflineModel && (
+            {/* Browser AI Indicator - Mobile (WebLLM offline mode) */}
+            {useTrueOfflineChat && isWebLLMReady && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-500/20 border border-orange-500/30"
+              >
+                <WifiOff className="w-3 h-3 text-orange-400" />
+                <span className="text-xs font-medium text-orange-400">Browser AI</span>
+              </motion.div>
+            )}
+            {/* Backend Offline Model Indicator - Mobile */}
+            {isUsingOfflineModel && !useTrueOfflineChat && (
               <motion.div
                 initial={{ opacity: 0, scale: 0.8 }}
                 animate={{ opacity: 1, scale: 1 }}

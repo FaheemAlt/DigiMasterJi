@@ -32,8 +32,7 @@ bcrypt==4.3.0
 python-dotenv
 
 # Background Tasks (Daily Quiz Generation)
-# Note: For Lambda, use EventBridge instead of APScheduler
-APScheduler
+# Note: For Lambda, use EventBridge to trigger quiz generation
 
 # Speech-to-Text (OpenAI Whisper) - Keep for local STT fallback
 # openai-whisper  # Commented out - use Deepgram in production

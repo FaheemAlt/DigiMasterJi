@@ -547,33 +547,147 @@ aws lambda add-permission \
 
 ## EventBridge (Quiz Scheduler)
 
-Replace APScheduler with EventBridge for quiz generation:
+Daily quizzes are generated automatically using EventBridge Scheduler to trigger a Lambda function at midnight UTC.
 
-### Create Scheduler Lambda
+> **Note**: The main backend Lambda (`digimasterji-backend-dev`) handles API requests. A separate Lambda (`digimasterji-quiz-scheduler`) handles scheduled quiz generation. Both use the same Docker image but with different handlers.
 
-Create a separate Lambda function for quiz generation that runs daily.
+### Step 1: Create Quiz Scheduler Lambda
 
-### Create EventBridge Rule
+Create a new Lambda function using the same ECR image as the main backend:
+
+```bash
+# Set variables
+export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+export AWS_REGION=us-east-1
+
+# Create the quiz scheduler Lambda
+aws lambda create-function \
+  --function-name digimasterji-quiz-scheduler \
+  --package-type Image \
+  --code ImageUri=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/digimasterji-backend:dev-latest \
+  --role arn:aws:iam::${ACCOUNT_ID}:role/digimasterji-lambda-role \
+  --timeout 300 \
+  --memory-size 1024 \
+  --region ${AWS_REGION} \
+  --image-config Command=app.services.quiz_scheduler.lambda_handler
+```
+
+> **Important**: The `--image-config Command=` overrides the default handler to use `app.services.quiz_scheduler.lambda_handler` instead of the Mangum handler.
+
+### Step 2: Configure Environment Variables
+
+Copy the same environment variables from the main backend Lambda:
+
+```bash
+# Get env vars from main backend and apply to scheduler
+aws lambda get-function-configuration \
+  --function-name digimasterji-backend-dev \
+  --query 'Environment' \
+  --output json > /tmp/env-vars.json
+
+aws lambda update-function-configuration \
+  --function-name digimasterji-quiz-scheduler \
+  --environment file:///tmp/env-vars.json
+```
+
+Or set manually via AWS Console with the same variables as the main backend.
+
+### Step 3: Create EventBridge Rule
 
 ```bash
 # Create rule to run at midnight UTC daily
+# Cron format: cron(minutes hours day-of-month month day-of-week year)
 aws events put-rule \
   --name digimasterji-daily-quiz \
-  --schedule-expression "cron(0 0 * * ? *)" \
-  --state ENABLED
+  --schedule-expression "cron(30 18 * * ? *)" \
+  --state ENABLED \
+  --description "Triggers daily quiz generation at midnight IST (18:30 UTC)"
 
-# Add Lambda as target
+# Verify rule was created
+aws events describe-rule --name digimasterji-daily-quiz
+```
+
+**Schedule Expression Examples:**
+
+- `cron(0 0 * * ? *)` - Midnight UTC daily
+- `cron(0 5 * * ? *)` - 5:00 AM UTC daily (10:30 AM IST)
+- `cron(0 18 * * ? *)` - 6:00 PM UTC daily (11:30 PM IST)
+- `rate(1 day)` - Every 24 hours from rule creation time
+
+### Step 4: Add Lambda as Target
+
+```bash
+export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
 aws events put-targets \
   --rule digimasterji-daily-quiz \
-  --targets "Id"="1","Arn"="arn:aws:lambda:us-east-1:${ACCOUNT_ID}:function:digimasterji-quiz-scheduler"
+  --targets "Id"="quiz-scheduler-target","Arn"="arn:aws:lambda:us-east-1:${ACCOUNT_ID}:function:digimasterji-quiz-scheduler"
+```
 
-# Grant EventBridge permission to invoke Lambda
+### Step 5: Grant EventBridge Permission
+
+```bash
+export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
 aws lambda add-permission \
   --function-name digimasterji-quiz-scheduler \
-  --statement-id eventbridge-invoke \
+  --statement-id eventbridge-daily-quiz \
   --action lambda:InvokeFunction \
   --principal events.amazonaws.com \
   --source-arn arn:aws:events:us-east-1:${ACCOUNT_ID}:rule/digimasterji-daily-quiz
+```
+
+### Step 6: Test the Scheduler
+
+Manually invoke the scheduler to test:
+
+```bash
+# Invoke with empty EventBridge-like payload
+aws lambda invoke \
+  --function-name digimasterji-quiz-scheduler \
+  --payload '{"source": "manual-test", "detail-type": "Manual Test"}' \
+  --cli-binary-format raw-in-base64-out \
+  response.json
+
+# Check response
+cat response.json
+```
+
+### Updating the Scheduler
+
+When you deploy a new version of the backend, update the scheduler too:
+
+```bash
+export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+aws lambda update-function-code \
+  --function-name digimasterji-quiz-scheduler \
+  --image-uri ${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/digimasterji-backend:dev-latest
+```
+
+### Monitoring
+
+View scheduler execution logs:
+
+```bash
+# Tail logs in real-time
+aws logs tail /aws/lambda/digimasterji-quiz-scheduler --follow
+
+# View recent logs
+aws logs tail /aws/lambda/digimasterji-quiz-scheduler --since 1h
+```
+
+### Disable/Enable Schedule
+
+```bash
+# Disable (pause quiz generation)
+aws events disable-rule --name digimasterji-daily-quiz
+
+# Enable (resume quiz generation)
+aws events enable-rule --name digimasterji-daily-quiz
+
+# Check status
+aws events describe-rule --name digimasterji-daily-quiz --query 'State'
 ```
 
 ---

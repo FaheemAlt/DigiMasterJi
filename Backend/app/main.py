@@ -2,7 +2,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database.dynamo import connect_to_dynamo, close_dynamo_connection
 from app.routers import auth, profiles, chat, admin, sync, quizzes
-from app.services.quiz_scheduler import QuizScheduler
 from mangum import Mangum
 import os
 from dotenv import load_dotenv
@@ -34,23 +33,15 @@ app.include_router(admin.router)
 app.include_router(sync.router)
 app.include_router(quizzes.router)
 
-# Initialize Quiz Scheduler
-quiz_scheduler = QuizScheduler()
-
 # Startup and Shutdown Events
+# Note: Quiz generation is handled by EventBridge triggering a separate Lambda
 @app.on_event("startup")
 async def startup_db_client():
     await connect_to_dynamo()
-    # Start quiz scheduler
-    logger.info("[STARTUP] Starting Quiz Scheduler...")
-    quiz_scheduler.start()
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
     await close_dynamo_connection()
-    # Shutdown quiz scheduler
-    logger.info("[SHUTDOWN] Stopping Quiz Scheduler...")
-    quiz_scheduler.shutdown()
 
 # Health Check Endpoint
 @app.get("/", tags=["Health"])

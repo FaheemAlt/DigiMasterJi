@@ -1,7 +1,3 @@
-Great choice! MongoDB Atlas has a generous free tier (512 MB storage, shared clusters) that's perfect for prototypes and early-stage products. Here are the updated tables:
-
----
-
 ## **Table 1: Prototype Level Usage** (Few developers, ~5-10 test users)
 
 | AWS Service                       | Component                    | Usage Assumptions            | Unit Price                          | Monthly Cost     |
@@ -70,41 +66,3 @@ Great choice! MongoDB Atlas has a generous free tier (512 MB storage, shared clu
 | **Monitoring (CloudWatch)**       | $0.06      | $20.60        |
 | **TOTAL**                         | **~$1.47** | **~$133.30**  |
 
----
-
-## **Cost Comparison: Before vs After MongoDB Atlas**
-
-| Scenario          | With OpenSearch Serverless | With MongoDB Atlas | Savings     |
-| ----------------- | -------------------------- | ------------------ | ----------- |
-| **Prototype**     | ~$358/month                | **~$1.47/month**   | **99.6%** ↓ |
-| **Early Release** | ~$1,244/month              | **~$133.30/month** | **89.3%** ↓   |
-
----
-
-## **MongoDB Atlas Free Tier Details (M0)**
-
-| Feature         | Limit        |
-| --------------- | ------------ |
-| Storage         | 512 MB       |
-| RAM             | Shared       |
-| vCPU            | Shared       |
-| Vector Search   | ✅ Included  |
-| Max Collections | 500          |
-| Connections     | 500          |
-| Price           | **$0/month** |
-
----
-
-## **MongoDB Atlas Paid Tiers (for scaling)**
-
-| Tier          | Storage | RAM    | Price/month |
-| ------------- | ------- | ------ | ----------- |
-| **M0 (Free)** | 512 MB  | Shared | $0          |
-| **M2**        | 2 GB    | Shared | ~$9         |
-| **M5**        | 5 GB    | Shared | ~$25        |
-| **M10**       | 10 GB   | 2 GB   | ~$57        |
-| **M20**       | 20 GB   | 4 GB   | ~$140       |
-
----
-
-This makes your **prototype essentially free** (under $1.50/month) and your **early product release very affordable** at ~$133/month! 🎉

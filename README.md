@@ -555,18 +555,18 @@ VITE_SYNC_DAYS=180
 
 ### Early Product (~500-1000 users)
 
-| Service             | Monthly Cost       |
-| ------------------- | ------------------ |
-| DynamoDB            | $8.75              |
-| S3                  | $2.55              |
-| Lambda              | $25.40             |
-| API Gateway         | $2.00              |
-| Bedrock (Nova Lite) | $16.00             |
-| MongoDB Atlas (M10) | $57.00             |
-| ECR                 | $0.50              |
-| EventBridge         | $0.50              |
-| CloudWatch          | $20.60             |
-| **Total**           | **~$133.30/month** |
+| Service             | Monthly Cost      |
+| ------------------- | ----------------- |
+| DynamoDB            | $8.75             |
+| S3                  | $2.55             |
+| Lambda              | $25.40            |
+| API Gateway         | $2.00             |
+| Bedrock (Nova Lite) | $16.00            |
+| MongoDB Atlas (M2)  | $9.00             |
+| ECR                 | $0.50             |
+| EventBridge         | $0.50             |
+| CloudWatch          | $20.60            |
+| **Total**           | **~$85.30/month** |
 
 ---
 

@@ -1,5 +1,5 @@
 """
-LLM Service - AWS Bedrock Integration for Meta Llama 3.1 8B Instruct
+LLM Service - AWS Bedrock Integration for Amazon Nova Lite
 =====================================================================
 This service handles communication with Amazon Bedrock
 for generating AI tutor responses in multiple Indian languages.
@@ -27,7 +27,7 @@ _executor = ThreadPoolExecutor(max_workers=4)
 class LLMService:
     """
     Service for interacting with Amazon Bedrock's LLM API.
-    Uses Meta Llama 3.1 8B Instruct for multilingual STEM tutoring.
+    Uses Amazon Nova Lite for multilingual STEM tutoring.
     """
     
     def __init__(
@@ -40,13 +40,11 @@ class LLMService:
         Initialize the LLM service.
         
         Args:
-            model_id: Bedrock model ID (defaults to meta.llama3-1-8b-instruct-v1:0)
+            model_id: Bedrock model ID (defaults to us.amazon.nova-lite-v1:0)
             region: AWS region for Bedrock
             timeout: Request timeout in seconds
         """
-        # Use cross-region inference profile for Llama models (required for on-demand throughput)
-        # Format: us.meta.llama3-1-8b-instruct-v1:0 (not meta.llama3-1-8b-instruct-v1:0)
-        default_model = "us.meta.llama3-1-8b-instruct-v1:0"
+        default_model = "us.amazon.nova-lite-v1:0"
         self.model_id = model_id or os.getenv("BEDROCK_MODEL_ID", default_model)
         
         # Ensure we use cross-region inference profile format
@@ -407,7 +405,7 @@ llm_service = LLMService()
 async def test_llm_service():
     """Test the LLM service connection and generation."""
     print("=" * 60)
-    print("Testing LLM Service (Amazon Bedrock + Llama 3.1)")
+    print("Testing LLM Service (Amazon Bedrock + Amazon Nova Lite)")
     print("=" * 60)
     
     service = LLMService()

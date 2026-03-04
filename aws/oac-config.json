@@ -1,0 +1,7 @@
+{
+  "Name": "digimasterji-frontend-oac",
+  "Description": "OAC for DigiMasterJi Frontend",
+  "SigningProtocol": "sigv4",
+  "SigningBehavior": "always",
+  "OriginAccessControlOriginType": "s3"
+}

@@ -589,10 +589,10 @@ VITE_SYNC_DAYS=180
 
 ### 🔗 Links
 
-| Resource          | Link                                                          |
-| ----------------- | ------------------------------------------------------------- |
-| 🎬 Demo Video     | [YouTube](https://youtu.be/h_Y3sgLOPy8)                       |
-| 🌐 Live Prototype | [digimaster-ji.vercel.app](https://digimaster-ji.vercel.app/) |
+| Resource          | Link                                                                 |
+| ----------------- | -------------------------------------------------------------------- |
+| 🎬 Demo Video     | [YouTube](https://youtu.be/h_Y3sgLOPy8)                              |
+| 🌐 Live Prototype | [d30acqvu7x6yf.cloudfront.net](https://d30acqvu7x6yf.cloudfront.net) |
 
 ---
 

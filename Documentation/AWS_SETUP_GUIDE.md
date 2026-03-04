@@ -336,7 +336,7 @@ aws s3api put-public-access-block \
 2. Navigate to "Model access" in the left sidebar
 3. Click "Modify model access"
 4. Enable the following models:
-   - **Meta Llama 3.1 8B Instruct** (`meta.llama3-1-8b-instruct-v1:0`)
+   - **Amazon Nova Lite** (`us.amazon.nova-lite-v1:0`)
    - **Amazon Titan Text Embeddings V2** (`amazon.titan-embed-text-v2:0`)
 5. Click "Next" and "Submit"
 
@@ -346,7 +346,7 @@ Wait for approval (usually instant for most models).
 
 ```bash
 # List available models
-aws bedrock list-foundation-models --region us-east-1 | grep -E "llama|titan-embed"
+aws bedrock list-foundation-models --region us-east-1 | grep -E "nova|titan-embed"
 ```
 
 ---
@@ -366,7 +366,7 @@ aws bedrock list-foundation-models --region us-east-1 | grep -E "llama|titan-emb
    - **Bucket**: `digimasterji-knowledge`
    - **Chunking strategy**: Default (or customize as needed)
 5. Select Vector Store:
-   - **OpenSearch Serverless** (recommended for ease of use)
+   - **MongoDB Vector Search** (Recommended for cost efficiency)
    - Let Bedrock create a new collection
 6. Review and create
 
@@ -423,7 +423,7 @@ aws lambda create-function \
     DYNAMODB_CONVERSATIONS_TABLE=digimasterji-conversations,
     DYNAMODB_MESSAGES_TABLE=digimasterji-messages,
     DYNAMODB_QUIZZES_TABLE=digimasterji-quizzes,
-    BEDROCK_MODEL_ID=meta.llama3-1-8b-instruct-v1:0,
+    BEDROCK_MODEL_ID=us.amazon.nova-lite-v1:0,
     BEDROCK_KNOWLEDGE_BASE_ID=YOUR_KB_ID,
     S3_KNOWLEDGE_BUCKET=digimasterji-knowledge,
     SECRET_KEY=your-production-secret-key
@@ -954,20 +954,20 @@ Required environment variables for the Lambda function:
 
 > **Note**: Do not set `AWS_REGION` - it's automatically provided by Lambda.
 
-| Variable                        | Description              | Example                          |
-| ------------------------------- | ------------------------ | -------------------------------- |
-| `DYNAMODB_USERS_TABLE`          | Users table name         | `digimasterji-users`             |
-| `DYNAMODB_PROFILES_TABLE`       | Profiles table name      | `digimasterji-profiles`          |
-| `DYNAMODB_CONVERSATIONS_TABLE`  | Conversations table name | `digimasterji-conversations`     |
-| `DYNAMODB_MESSAGES_TABLE`       | Messages table name      | `digimasterji-messages`          |
-| `DYNAMODB_QUIZZES_TABLE`        | Quizzes table name       | `digimasterji-quizzes`           |
-| `DYNAMODB_KNOWLEDGE_BASE_TABLE` | KB tracking table        | `digimasterji-knowledge-base`    |
-| `BEDROCK_MODEL_ID`              | Bedrock LLM model        | `meta.llama3-1-8b-instruct-v1:0` |
-| `BEDROCK_KNOWLEDGE_BASE_ID`     | Bedrock KB ID            | `ABCD1234EF`                     |
-| `BEDROCK_DATA_SOURCE_ID`        | Bedrock data source ID   | `EFGH5678IJ`                     |
-| `S3_KNOWLEDGE_BUCKET`           | S3 bucket for docs       | `digimasterji-knowledge`         |
-| `SECRET_KEY`                    | JWT secret key           | `your-secure-secret`             |
-| `DEEPGRAM_API_KEY`              | Deepgram API key         | `your-deepgram-key`              |
+| Variable                        | Description              | Example                       |
+| ------------------------------- | ------------------------ | ----------------------------- |
+| `DYNAMODB_USERS_TABLE`          | Users table name         | `digimasterji-users`          |
+| `DYNAMODB_PROFILES_TABLE`       | Profiles table name      | `digimasterji-profiles`       |
+| `DYNAMODB_CONVERSATIONS_TABLE`  | Conversations table name | `digimasterji-conversations`  |
+| `DYNAMODB_MESSAGES_TABLE`       | Messages table name      | `digimasterji-messages`       |
+| `DYNAMODB_QUIZZES_TABLE`        | Quizzes table name       | `digimasterji-quizzes`        |
+| `DYNAMODB_KNOWLEDGE_BASE_TABLE` | KB tracking table        | `digimasterji-knowledge-base` |
+| `BEDROCK_MODEL_ID`              | Bedrock LLM model        | `us.amazon.nova-lite-v1:0`    |
+| `BEDROCK_KNOWLEDGE_BASE_ID`     | Bedrock KB ID            | `ABCD1234EF`                  |
+| `BEDROCK_DATA_SOURCE_ID`        | Bedrock data source ID   | `EFGH5678IJ`                  |
+| `S3_KNOWLEDGE_BUCKET`           | S3 bucket for docs       | `digimasterji-knowledge`      |
+| `SECRET_KEY`                    | JWT secret key           | `your-secure-secret`          |
+| `DEEPGRAM_API_KEY`              | Deepgram API key         | `your-deepgram-key`           |
 
 ---
 
@@ -1010,16 +1010,6 @@ Simply run the deploy script:
 ./deploy.sh staging  # Staging
 ./deploy.sh prod     # Production
 ```
-
----
-
-## Cost Optimization Tips
-
-1. **DynamoDB**: Use on-demand pricing for unpredictable workloads
-2. **Lambda**: Set appropriate timeout and memory
-3. **Bedrock**: Use smaller models (Llama 8B) for cost efficiency
-4. **S3**: Enable lifecycle rules for old documents
-5. **OpenSearch Serverless**: Monitor OCU usage
 
 ---
 

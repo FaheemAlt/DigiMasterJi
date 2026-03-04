@@ -1,21 +1,22 @@
 # DigiMasterJi AWS Setup Guide
 
-This guide walks you through setting up the AWS infrastructure required to run DigiMasterJi backend on AWS.
+This guide walks you through setting up the AWS infrastructure required to run DigiMasterJi (backend and frontend) on AWS.
 
 ## Table of Contents
 
 1. [Prerequisites](#prerequisites)
 2. [IAM Configuration](#iam-configuration)
 3. [DynamoDB Tables](#dynamodb-tables)
-4. [S3 Bucket](#s3-bucket)
+4. [S3 Bucket (Knowledge Base)](#s3-bucket-knowledge-base)
 5. [Amazon Bedrock](#amazon-bedrock)
 6. [Bedrock Knowledge Base](#bedrock-knowledge-base)
 7. [ECR Repository](#ecr-repository)
 8. [Lambda Function](#lambda-function)
 9. [API Gateway](#api-gateway)
 10. [EventBridge (Quiz Scheduler)](#eventbridge-quiz-scheduler)
-11. [Environment Variables](#environment-variables)
-12. [Deployment](#deployment)
+11. [Frontend Deployment (S3 + CloudFront)](#frontend-deployment-s3--cloudfront)
+12. [Environment Variables](#environment-variables)
+13. [Deployment](#deployment)
 
 ---
 
@@ -305,7 +306,7 @@ aws dynamodb create-table \
 
 ---
 
-## S3 Bucket
+## S3 Bucket (Knowledge Base)
 
 Create the S3 bucket for knowledge base documents:
 
@@ -689,6 +690,261 @@ aws events enable-rule --name digimasterji-daily-quiz
 # Check status
 aws events describe-rule --name digimasterji-daily-quiz --query 'State'
 ```
+
+---
+
+## Frontend Deployment (S3 + CloudFront)
+
+Deploy the React frontend to S3 with CloudFront for global CDN delivery.
+
+### Step 1: Create S3 Bucket for Frontend
+
+```bash
+# Create the frontend bucket
+aws s3 mb s3://digimasterji-frontend --region us-east-1
+
+# Disable public access block for static website hosting
+aws s3api put-public-access-block \
+  --bucket digimasterji-frontend \
+  --public-access-block-configuration \
+    "BlockPublicAcls=false,IgnorePublicAcls=false,BlockPublicPolicy=false,RestrictPublicBuckets=false"
+
+# Enable static website hosting
+aws s3 website s3://digimasterji-frontend \
+  --index-document index.html \
+  --error-document index.html
+```
+
+### Step 2: Create S3 Bucket Policy
+
+```bash
+cat > frontend-bucket-policy.json << 'EOF'
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CloudFrontAccess",
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "cloudfront.amazonaws.com"
+      },
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::digimasterji-frontend/*",
+      "Condition": {
+        "StringEquals": {
+          "AWS:SourceArn": "arn:aws:cloudfront::YOUR_ACCOUNT_ID:distribution/YOUR_DISTRIBUTION_ID"
+        }
+      }
+    }
+  ]
+}
+EOF
+
+# Note: Update the policy after creating CloudFront distribution (Step 5)
+```
+
+### Step 3: Create Origin Access Control (OAC)
+
+```bash
+cat > oac-config.json << 'EOF'
+{
+  "Name": "digimasterji-frontend-oac",
+  "Description": "OAC for DigiMasterJi Frontend",
+  "SigningProtocol": "sigv4",
+  "SigningBehavior": "always",
+  "OriginAccessControlOriginType": "s3"
+}
+EOF
+
+aws cloudfront create-origin-access-control \
+  --origin-access-control-config file://oac-config.json
+```
+
+Note the OAC ID from the output for the next step.
+
+### Step 4: Create CloudFront Distribution
+
+```bash
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+OAC_ID="your-oac-id-from-step-3"
+
+cat > cloudfront-config.json << EOF
+{
+  "CallerReference": "digimasterji-frontend-$(date +%s)",
+  "Comment": "DigiMasterJi Frontend Distribution",
+  "Enabled": true,
+  "DefaultRootObject": "index.html",
+  "Origins": {
+    "Quantity": 1,
+    "Items": [
+      {
+        "Id": "S3-digimasterji-frontend",
+        "DomainName": "digimasterji-frontend.s3.us-east-1.amazonaws.com",
+        "OriginAccessControlId": "${OAC_ID}",
+        "S3OriginConfig": {
+          "OriginAccessIdentity": ""
+        }
+      }
+    ]
+  },
+  "DefaultCacheBehavior": {
+    "TargetOriginId": "S3-digimasterji-frontend",
+    "ViewerProtocolPolicy": "redirect-to-https",
+    "AllowedMethods": {
+      "Quantity": 2,
+      "Items": ["GET", "HEAD"],
+      "CachedMethods": {
+        "Quantity": 2,
+        "Items": ["GET", "HEAD"]
+      }
+    },
+    "CachePolicyId": "658327ea-f89d-4fab-a63d-7e88639e58f6",
+    "Compress": true
+  },
+  "CustomErrorResponses": {
+    "Quantity": 2,
+    "Items": [
+      {
+        "ErrorCode": 403,
+        "ResponsePagePath": "/index.html",
+        "ResponseCode": "200",
+        "ErrorCachingMinTTL": 300
+      },
+      {
+        "ErrorCode": 404,
+        "ResponsePagePath": "/index.html",
+        "ResponseCode": "200",
+        "ErrorCachingMinTTL": 300
+      }
+    ]
+  },
+  "PriceClass": "PriceClass_All"
+}
+EOF
+
+aws cloudfront create-distribution \
+  --distribution-config file://cloudfront-config.json
+```
+
+Note the **Distribution ID** and **Domain Name** from the output.
+
+### Step 5: Update S3 Bucket Policy with CloudFront ARN
+
+After creating the distribution, update the bucket policy:
+
+```bash
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+DISTRIBUTION_ID="your-distribution-id"
+
+cat > frontend-bucket-policy.json << EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CloudFrontAccess",
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "cloudfront.amazonaws.com"
+      },
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::digimasterji-frontend/*",
+      "Condition": {
+        "StringEquals": {
+          "AWS:SourceArn": "arn:aws:cloudfront::${ACCOUNT_ID}:distribution/${DISTRIBUTION_ID}"
+        }
+      }
+    }
+  ]
+}
+EOF
+
+aws s3api put-bucket-policy \
+  --bucket digimasterji-frontend \
+  --policy file://frontend-bucket-policy.json
+```
+
+### Step 6: Build and Deploy Frontend
+
+Create a deployment script `Frontend/deploy-aws.sh`:
+
+```bash
+#!/bin/bash
+set -e
+
+# Configuration
+BUCKET_NAME="digimasterji-frontend"
+DISTRIBUTION_ID="YOUR_DISTRIBUTION_ID"  # Update this
+API_URL="https://your-api-gateway-url.amazonaws.com"  # Update this
+
+echo "🏗️  Building frontend..."
+VITE_API_URL=$API_URL npm run build
+
+echo "📤 Uploading to S3..."
+aws s3 sync dist/ s3://${BUCKET_NAME} --delete
+
+# Set cache headers for different file types
+echo "📋 Setting cache headers..."
+# HTML files - short cache
+aws s3 cp s3://${BUCKET_NAME}/index.html s3://${BUCKET_NAME}/index.html \
+  --metadata-directive REPLACE \
+  --cache-control "public, max-age=0, must-revalidate" \
+  --content-type "text/html"
+
+# JS/CSS files - long cache (they have hash in filename)
+aws s3 cp s3://${BUCKET_NAME}/assets/ s3://${BUCKET_NAME}/assets/ \
+  --recursive \
+  --metadata-directive REPLACE \
+  --cache-control "public, max-age=31536000, immutable"
+
+echo "🔄 Invalidating CloudFront cache..."
+aws cloudfront create-invalidation \
+  --distribution-id ${DISTRIBUTION_ID} \
+  --paths "/*"
+
+echo "✅ Deployment complete!"
+echo "🌐 Site: https://$(aws cloudfront get-distribution --id ${DISTRIBUTION_ID} --query 'Distribution.DomainName' --output text)"
+```
+
+Make it executable:
+
+```bash
+chmod +x Frontend/deploy-aws.sh
+```
+
+### Step 7: Test Deployment
+
+```bash
+cd Frontend
+./deploy-aws.sh
+```
+
+Your frontend will be available at: `https://dxxxxxxxx.cloudfront.net`
+
+### (Optional) Custom Domain with ACM
+
+To use a custom domain (e.g., `digimasterji.com`):
+
+1. **Request SSL Certificate in ACM** (must be in us-east-1 for CloudFront):
+
+```bash
+aws acm request-certificate \
+  --domain-name digimasterji.com \
+  --subject-alternative-names "www.digimasterji.com" \
+  --validation-method DNS \
+  --region us-east-1
+```
+
+2. **Add CNAME records** to your DNS for validation
+
+3. **Update CloudFront distribution** with custom domain and certificate:
+
+```bash
+aws cloudfront update-distribution \
+  --id YOUR_DISTRIBUTION_ID \
+  --distribution-config file://updated-config-with-aliases.json
+```
+
+4. **Point your domain** to CloudFront via CNAME or Route 53 alias
 
 ---
 

@@ -7,13 +7,14 @@
 DigiMasterJi has been fully implemented and deployed to AWS cloud infrastructure. The system is production-ready and accessible at [digimaster-ji.vercel.app](https://digimaster-ji.vercel.app/).
 
 **Deployment Details:**
+
 - Backend: AWS Lambda with Python FastAPI + Mangum adapter
 - Database: DynamoDB (6 tables) + MongoDB Atlas (vector search)
 - AI/ML: AWS Bedrock (Amazon Nova Lite + Titan Text Embeddings V2)
 - Scheduling: EventBridge for automated quiz generation
 - Speech: Deepgram Cloud API (primary STT)
-- Infrastructure: API Gateway, S3, CloudWatch, ECR
-- Frontend: React PWA hosted on Vercel
+- Infrastructure: API Gateway, S3, CloudWatch, ECR, CloudFront
+- Frontend: React PWA hosted on AWS S3 + CloudFront
 
 ## Overview
 
@@ -36,7 +37,7 @@ graph TB
         WebLLM[WebLLM - Gemma-2B-it]
         WaveSurfer[WaveSurfer.js Audio Viz]
     end
-    
+
     subgraph "AWS Cloud Infrastructure"
         APIGW[API Gateway HTTP API]
         Lambda[AWS Lambda - FastAPI + Mangum]
@@ -46,28 +47,33 @@ graph TB
         CloudWatch[CloudWatch Logs & Metrics]
         ECR[ECR - Container Registry]
     end
-    
+
     subgraph "AWS AI/ML Services"
         Bedrock[AWS Bedrock - Amazon Nova Lite]
         BedrockKB[Bedrock Knowledge Base]
         TitanEmbed[Titan Text Embeddings V2]
         MongoDB[(MongoDB Atlas Vector Search)]
     end
-    
+
     subgraph "External Services"
         Deepgram[Deepgram Cloud STT]
         GoogleTTS[Google TTS]
-        Vercel[Vercel - Frontend Hosting]
     end
-    
+
+    subgraph "AWS Frontend Hosting"
+        S3Frontend[S3 - Static Assets]
+        CloudFront[CloudFront - CDN]
+    end
+
     PWA <--> SW
     SW <--> IDB
     SW <--> Cache
     PWA <--> Voice
     PWA <--> WebLLM
     Voice <--> WaveSurfer
-    
-    PWA <-.->|HTTPS| Vercel
+
+    PWA <-.->|HTTPS| CloudFront
+    CloudFront <-.-> S3Frontend
     PWA <-.->|Sync when online| APIGW
     APIGW --> Lambda
     Lambda <--> DDB
@@ -77,10 +83,10 @@ graph TB
     Lambda <--> Deepgram
     Lambda <--> GoogleTTS
     Lambda --> CloudWatch
-    
+
     BedrockKB <--> TitanEmbed
     BedrockKB <--> MongoDB
-    
+
     EventBridge -.->|Daily Trigger| Lambda
     ECR -.->|Container Image| Lambda
 ```
@@ -96,6 +102,7 @@ The system implements a **"Dual-Layer Offline-First with Browser LLM"** pattern:
 5. **Graceful Degradation**: Full functionality available offline with cached content and local AI processing
 
 **Production Implementation Notes:**
+
 - AWS Lambda runs Python FastAPI with Mangum adapter for serverless deployment
 - DynamoDB provides scalable NoSQL storage with on-demand billing
 - EventBridge replaces APScheduler for serverless cron-based quiz generation
@@ -113,7 +120,7 @@ graph LR
         L4[WebLLM Cache<br/>Gemma-2B Model]
         L5[Cloud Storage<br/>Full Dataset & Sync]
     end
-    
+
     L1 --> L2
     L2 --> L3
     L3 --> L4
@@ -125,8 +132,9 @@ graph LR
 ### 1. Progressive Web App (PWA) Frontend
 
 **Technology Stack**: React 19 + Vite 7 + TypeScript + Workbox + TailwindCSS 4
-**Deployment**: Vercel (production hosting)
+**Deployment**: AWS S3 + CloudFront (production hosting)
 **Key Features**:
+
 - Service Worker with Workbox for advanced offline functionality
 - Responsive design optimized for mobile devices
 - Voice-first UI with minimal visual dependencies
@@ -135,6 +143,7 @@ graph LR
 - "Night School" audio-only mode for accessibility
 
 **Core Components**:
+
 ```typescript
 interface StudentProfile {
   id: string;
@@ -172,12 +181,14 @@ interface VoiceInterface {
 
 ### 2. Enhanced Voice Interface System
 
-**Speech-to-Text**: 
+**Speech-to-Text**:
+
 - Primary: Deepgram Cloud API (production deployment)
 - Fallback: Browser Web Speech API (offline mode)
 - Real-time audio visualization with WaveSurfer.js
 
 **Text-to-Speech**:
+
 - Primary: Google TTS (gTTS) with multilingual Indian voices
 - Offline: Browser Speech Synthesis API
 - Cached audio responses for common interactions
@@ -187,6 +198,7 @@ interface VoiceInterface {
 **Audio-Only "Night School" Mode**: Complete functionality without visual elements for late-night study or visual impairments
 
 **Production Implementation**:
+
 - Deepgram API integrated via AWS Lambda
 - Audio files processed server-side and immediately discarded for privacy
 - TTS responses cached in S3 for frequently requested content
@@ -194,7 +206,11 @@ interface VoiceInterface {
 ```typescript
 interface EnhancedSpeechProcessor {
   transcribe(audioBlob: Blob, language: string): Promise<string>;
-  synthesize(text: string, language: string, voice?: string): Promise<AudioBuffer>;
+  synthesize(
+    text: string,
+    language: string,
+    voice?: string,
+  ): Promise<AudioBuffer>;
   detectLanguage(audioBlob: Blob): Promise<string>;
   visualizeAudio(stream: MediaStream): WaveSurfer;
   enableNightMode(): void;
@@ -211,6 +227,7 @@ interface EnhancedSpeechProcessor {
 **Chunking Strategy**: 500-token chunks with 50-token overlap for optimal context retrieval
 
 **Production Implementation**:
+
 - AWS Bedrock Knowledge Base manages RAG pipeline
 - S3 bucket stores PDF documents
 - MongoDB Atlas provides vector search backend
@@ -218,6 +235,7 @@ interface EnhancedSpeechProcessor {
 - Bedrock Retrieve API handles semantic search
 
 **Enhanced RAG Pipeline**:
+
 1. **Document Processing**: PDF upload to S3 → Bedrock ingestion → Titan embedding generation → MongoDB Atlas storage
 2. **Query Processing**: Voice/text input → Query embedding via Titan
 3. **Semantic Retrieval**: Vector similarity search in MongoDB Atlas via Bedrock
@@ -259,15 +277,15 @@ class EnhancedRAGEngine:
     async def process_document(self, pdf_file: bytes, metadata: Dict) -> None:
         """Upload PDF to S3 and trigger Bedrock ingestion"""
         pass
-    
+
     async def query(self, question: str, student_context: Dict) -> RAGResponse:
         """Query Bedrock Knowledge Base with student context"""
         pass
-    
+
     async def generate_insights(self, student_history: List[Dict]) -> List[LearningInsight]:
         """Generate AI-powered learning insights"""
         pass
-    
+
     async def validate_response(self, response: str, sources: List[NCERTSource]) -> bool:
         """Validate response against NCERT sources"""
         pass
@@ -276,6 +294,7 @@ class EnhancedRAGEngine:
 ### 4. Dual-Layer Offline Data Management
 
 **IndexedDB with Dexie.js Schema**:
+
 ```typescript
 interface EnhancedOfflineDatabase {
   students: StudentProfile[];
@@ -299,6 +318,7 @@ interface WebLLMCache {
 ```
 
 **Enhanced Sync Manager with Conflict Resolution**:
+
 ```typescript
 interface EnhancedSyncManager {
   queueOperation(operation: SyncOperation): void;
@@ -306,25 +326,31 @@ interface EnhancedSyncManager {
   resolveConflicts(conflicts: DataConflict[]): Promise<void>;
   prioritizeSync(operations: SyncOperation[]): SyncOperation[];
   handleMultiDayOffline(offlineDays: number): Promise<void>;
-  mergeGamificationData(local: GamificationData, cloud: GamificationData): GamificationData;
+  mergeGamificationData(
+    local: GamificationData,
+    cloud: GamificationData,
+  ): GamificationData;
 }
 ```
 
 ### 5. Dual-Mode AI System
 
 **Browser-Based AI (Offline)**:
+
 - WebLLM with @mlc-ai/web-llm
 - Gemma-2B-it-q4f32_1-MLC model (~1.5GB)
 - WebGPU acceleration for performance
 - Zero latency responses without internet
 
 **Cloud-Based AI (Online - Production)**:
+
 - AWS Bedrock with Amazon Nova Lite
 - Model ID: `us.amazon.nova-lite-v1:0`
 - Enhanced reasoning capabilities for complex queries
 - Integrated with Bedrock Knowledge Base for RAG
 
 **Production Implementation**:
+
 - Lambda function invokes Bedrock via boto3
 - Streaming responses supported for better UX
 - Automatic fallback to WebLLM when offline
@@ -345,23 +371,23 @@ class DualModeAI:
     def __init__(self):
         self.bedrock_client = boto3.client('bedrock-runtime')
         self.bedrock_agent_client = boto3.client('bedrock-agent-runtime')
-    
+
     async def generate_cloud_response(
-        self, 
-        prompt: str, 
+        self,
+        prompt: str,
         context: RAGContext
     ) -> str:
         """Generate response using AWS Bedrock Amazon Nova Lite"""
         pass
-    
+
     async def query_knowledge_base(
-        self, 
-        query: str, 
+        self,
+        query: str,
         kb_id: str
     ) -> List[Dict]:
         """Query Bedrock Knowledge Base for RAG context"""
         pass
-    
+
     def select_optimal_mode(self) -> str:
         """Determine if online (Bedrock) or offline (WebLLM)"""
         return 'online' if self._check_connectivity() else 'offline'
@@ -376,6 +402,7 @@ class WebLLMConfig(BaseModel):
 ### 6. Advanced Gamified Learning System
 
 **Comprehensive Gamification Engine**:
+
 ```python
 # Production Python implementation
 from typing import List, Dict
@@ -401,26 +428,26 @@ class GamificationEngine:
     async def calculate_xp(self, activity: Dict) -> int:
         """Calculate XP for learning activities"""
         pass
-    
+
     async def update_streak(self, student_id: str, activity_date: datetime) -> StreakData:
         """Update daily streak data"""
         pass
-    
+
     async def check_badge_eligibility(self, student: Dict) -> List[Badge]:
         """Check and award eligible badges"""
         pass
-    
+
     async def generate_leaderboard(self, family_profiles: List[Dict]) -> List[Dict]:
         """Generate family leaderboard"""
         pass
-    
+
     async def handle_missed_days(self, student_id: str, missed_days: int) -> Dict:
         """Handle missed quiz days and backlog"""
         pass
 
 # 15+ Achievement Badges
 AVAILABLE_BADGES = [
-    'First Steps', 'On Fire', 'Week Warrior', 'Perfectionist', 
+    'First Steps', 'On Fire', 'Week Warrior', 'Perfectionist',
     'Math Wizard', 'Science Explorer', 'Language Master', 'Quiz Champion',
     'Streak Keeper', 'Night Owl', 'Early Bird', 'Comeback Kid',
     'Helper', 'Curious Mind', 'Problem Solver'
@@ -428,28 +455,30 @@ AVAILABLE_BADGES = [
 ```
 
 **Automated Quiz Generation with EventBridge**:
+
 ```python
 # Production implementation using EventBridge + Lambda
 class QuizScheduler:
     async def generate_daily_quiz(self, student_id: str) -> Dict:
         """Generate personalized daily quiz"""
         pass
-    
+
     async def lambda_handler(self, event: Dict, context: Dict) -> Dict:
         """EventBridge trigger handler for daily quiz generation"""
         # Triggered at midnight IST (18:30 UTC) daily
         pass
-    
+
     async def handle_missed_quizzes(self, student_id: str) -> Dict:
         """Handle quiz backlog for missed days"""
         pass
-    
+
     async def adapt_difficulty(self, student_history: List[Dict]) -> int:
         """Adapt quiz difficulty based on performance"""
         pass
 ```
 
 **Production Deployment**:
+
 - EventBridge rule triggers Lambda at midnight IST daily
 - Separate Lambda function (`digimasterji-quiz-scheduler`) handles quiz generation
 - DynamoDB stores quiz data with status tracking
@@ -458,6 +487,7 @@ class QuizScheduler:
 ### 7. AI-Powered Learning Analytics
 
 **Automated Insight Generation**:
+
 ```python
 # Production Python implementation
 from typing import List, Dict, Optional
@@ -488,46 +518,48 @@ class LearningAnalytics:
     async def generate_insights(self, student_id: str) -> List[LearningInsight]:
         """Generate AI-powered learning insights using Bedrock"""
         pass
-    
+
     async def analyze_performance_trends(self, quiz_history: List[Dict]) -> PerformanceAnalysis:
         """Analyze performance trends over time"""
         pass
-    
+
     async def identify_weak_topics(self, student_data: Dict) -> List[Dict]:
         """Identify weak topics using quiz results and chat history"""
         pass
-    
+
     async def generate_recommendations(self, insights: List[LearningInsight]) -> List[Dict]:
         """Generate actionable study recommendations"""
         pass
-    
+
     async def create_bilingual_report(self, insights: List[LearningInsight], language: str) -> Dict:
         """Create analytics report in student's preferred language"""
         pass
 ```
 
 **Background Task Integration**:
+
 ```python
 # EventBridge-triggered analytics generation
 class AnalyticsScheduler:
     async def trigger_insight_generation(
-        self, 
-        student_id: str, 
+        self,
+        student_id: str,
         trigger: str  # 'quiz_completed' | 'daily' | 'weekly'
     ) -> None:
         """Trigger insight generation based on events"""
         pass
-    
+
     async def schedule_performance_analysis(self, student_id: str) -> None:
         """Schedule weekly performance analysis"""
         pass
-    
+
     async def update_learning_patterns(self, student_id: str) -> None:
         """Update learning pattern analysis"""
         pass
 ```
 
 **Production Implementation**:
+
 - Bedrock Amazon Nova Lite generates insights from quiz and chat data
 - DynamoDB stores analytics data with efficient querying
 - EventBridge triggers weekly analytics generation
@@ -538,6 +570,7 @@ class AnalyticsScheduler:
 **Technology Stack**: Python 3.11 + FastAPI + Mangum (Lambda adapter) + Boto3
 
 **Enhanced API Gateway + Lambda Functions**:
+
 - `/auth/register` - User registration with phone/email
 - `/auth/login` - JWT-based authentication
 - `/profiles/*` - Netflix-style profile management
@@ -552,6 +585,7 @@ class AnalyticsScheduler:
 - `/sync/pull` - Offline data synchronization
 
 **DynamoDB Tables (6 tables with GSIs)**:
+
 ```python
 # Production DynamoDB schema
 from typing import Optional, List, Dict
@@ -645,7 +679,7 @@ class KnowledgeBaseDocument(BaseModel):
 
 **API Gateway Configuration**:
 - HTTP API (cheaper and faster than REST API)
-- CORS enabled for frontend access from Vercel
+- CORS enabled for frontend access from CloudFront
 - Custom domain name support for production
 - Request throttling and rate limiting
 - CloudWatch metrics for monitoring
@@ -699,7 +733,7 @@ class KnowledgeBaseDocument(BaseModel):
 - DynamoDB auto-scales with on-demand mode
 - API Gateway handles millions of requests
 - Bedrock Knowledge Base scales with data volume
-- Frontend CDN (Vercel) for global distribution
+- Frontend CDN (CloudFront) for global distribution
 
 **Development Workflow**:
 - Local development with FastAPI + Uvicorn
@@ -708,12 +742,12 @@ class KnowledgeBaseDocument(BaseModel):
 - Environment-specific configurations (dev/staging/prod)
 - CI/CD pipeline integration ready
 
-**Frontend Deployment (Vercel)**:
-- Automatic deployments from Git repository
-- Global CDN for fast content delivery
-- Preview deployments for pull requests
+**Frontend Deployment (S3 + CloudFront)**:
+- S3 bucket for static asset storage
+- CloudFront CDN for global distribution
+- deploy-aws.sh script for automated deployments
 - Environment variables for API endpoints
-- Custom domain support with SSL
+- Custom domain support with ACM SSL
 
 ### Migration from Original Design
 
@@ -767,79 +801,97 @@ async def lambda_handler(event: Dict, context: Dict) -> Dict:
 ```
 
 **Production Deployment**:
+
 - Docker image built and pushed to ECR
 - Lambda function uses container image deployment
 - API Gateway HTTP API with CORS configuration
 - CloudWatch Logs for monitoring and debugging
 - IAM role with least-privilege permissionsconnected usage, when connectivity is restored, the Sync_Manager should merge all data with cloud storage without loss, prioritizing local data over cloud data to prevent progress loss, and resolving conflicts automatically.
-**Validates: Requirements 2.3, 7.1, 7.2, 7.3**
+  **Validates: Requirements 2.3, 7.1, 7.2, 7.3**
 
 ### Property 4: Curriculum-Aligned Content Generation
-*For any* student question within the curriculum scope, the RAG_Engine should generate responses using only NCERT textbook content as source material, include proper citations with textbook sections and page numbers, and ensure responses align with the student's grade level and subject.
+
+_For any_ student question within the curriculum scope, the RAG_Engine should generate responses using only NCERT textbook content as source material, include proper citations with textbook sections and page numbers, and ensure responses align with the student's grade level and subject.
 **Validates: Requirements 3.1, 3.3, 3.4, 3.5**
 
 ### Property 5: Multi-Student Profile Isolation
-*For any* device with multiple student profiles, the DigiMasterJi_System should maintain complete data separation between profiles, enable voice-based authentication for profile switching, and preserve individual progress tracking both offline and during synchronization.
+
+_For any_ device with multiple student profiles, the DigiMasterJi_System should maintain complete data separation between profiles, enable voice-based authentication for profile switching, and preserve individual progress tracking both offline and during synchronization.
 **Validates: Requirements 4.1, 4.2, 4.3, 4.5**
 
 ### Property 6: Adaptive Quiz Generation
-*For any* completed learning session, the DigiMasterJi_System should generate quiz questions based on covered topics, adapt difficulty based on the student's performance history, and provide NCERT-based explanations for incorrect answers with suggested review topics.
+
+_For any_ completed learning session, the DigiMasterJi_System should generate quiz questions based on covered topics, adapt difficulty based on the student's performance history, and provide NCERT-based explanations for incorrect answers with suggested review topics.
 **Validates: Requirements 5.1, 5.2, 5.3**
 
 ### Property 7: Privacy-Compliant Audio Processing
-*For any* voice input processing, the Voice_Interface should convert audio to text and immediately discard the raw audio data, store only learning progress and preferences (never raw audio), and process speech locally when operating offline without external server communication.
+
+_For any_ voice input processing, the Voice_Interface should convert audio to text and immediately discard the raw audio data, store only learning progress and preferences (never raw audio), and process speech locally when operating offline without external server communication.
 **Validates: Requirements 6.1, 6.4, 6.3**
 
 ### Property 8: Resilient Sync Operations
-*For any* sync operation that fails due to network issues, the Sync_Manager should retry with exponential backoff up to 5 attempts while allowing normal system operation to continue without blocking user interactions.
+
+_For any_ sync operation that fails due to network issues, the Sync_Manager should retry with exponential backoff up to 5 attempts while allowing normal system operation to continue without blocking user interactions.
 **Validates: Requirements 7.4, 7.5**
 
 ### Property 9: Content Management Pipeline
-*For any* NCERT PDF uploaded by administrators, the Admin_Dashboard should process and index the content for RAG retrieval, version the changes, notify connected devices for cache updates, and provide detailed error messages with retry options if processing fails.
+
+_For any_ NCERT PDF uploaded by administrators, the Admin_Dashboard should process and index the content for RAG retrieval, version the changes, notify connected devices for cache updates, and provide detailed error messages with retry options if processing fails.
 **Validates: Requirements 8.1, 8.2, 8.4**
 
 ### Property 10: Resource-Constrained Performance
-*For any* device with limited resources (minimum 100MB storage, 2GB RAM, low battery, constrained bandwidth), the DigiMasterJi_System should maintain responsive performance by optimizing processing intensity and prioritizing essential content while preserving core functionality.
+
+_For any_ device with limited resources (minimum 100MB storage, 2GB RAM, low battery, constrained bandwidth), the DigiMasterJi_System should maintain responsive performance by optimizing processing intensity and prioritizing essential content while preserving core functionality.
 **Validates: Requirements 9.2, 9.4, 9.5**
 
 ### Property 11: Intelligent Progress Analytics
-*For any* student learning activity, the DigiMasterJi_System should track progress across subjects and topics, identify knowledge gaps, suggest focus areas, present analytics in the student's preferred language, and recommend additional practice sessions when progress patterns indicate learning difficulties.
+
+_For any_ student learning activity, the DigiMasterJi_System should track progress across subjects and topics, identify knowledge gaps, suggest focus areas, present analytics in the student's preferred language, and recommend additional practice sessions when progress patterns indicate learning difficulties.
 **Validates: Requirements 10.1, 10.2, 10.3, 10.5**
 
 ### Property 12: Language Switching Continuity
-*For any* active learning session, when a student switches languages mid-session, the DigiMasterJi_System should seamlessly adapt and continue the conversation in the new language without losing context or progress.
+
+_For any_ active learning session, when a student switches languages mid-session, the DigiMasterJi_System should seamlessly adapt and continue the conversation in the new language without losing context or progress.
 **Validates: Requirements 1.3**
 
 ### Property 13: Cache Management Optimization
-*For any* storage constraint scenario, the DigiMasterJi_System should prioritize caching based on the student's current curriculum level, ensure essential content is cached for at least 7 days of offline usage on first install, and update offline caches when new content becomes available during sync opportunities.
+
+_For any_ storage constraint scenario, the DigiMasterJi_System should prioritize caching based on the student's current curriculum level, ensure essential content is cached for at least 7 days of offline usage on first install, and update offline caches when new content becomes available during sync opportunities.
 **Validates: Requirements 2.4, 2.5, 8.5**
 
 ### Property 14: Out-of-Curriculum Handling
-*For any* student question that cannot be answered using available NCERT content, the RAG_Engine should inform the student that the topic is outside the current curriculum rather than generating potentially inaccurate responses.
+
+_For any_ student question that cannot be answered using available NCERT content, the RAG_Engine should inform the student that the topic is outside the current curriculum rather than generating potentially inaccurate responses.
 **Validates: Requirements 3.2**
 
 ### Property 15: Performance Response Times
-*For any* profile switching operation, the DigiMasterJi_System should complete the transition within 3 seconds, maintaining user experience standards even on resource-constrained devices.
+
+_For any_ profile switching operation, the DigiMasterJi_System should complete the transition within 3 seconds, maintaining user experience standards even on resource-constrained devices.
 **Validates: Requirements 4.4**
 
 ### Property 16: Automated Review System
-*For any* student who hasn't used the system for 24 hours, the DigiMasterJi_System should automatically prepare a review quiz covering recent topics to reinforce learning and maintain engagement.
+
+_For any_ student who hasn't used the system for 24 hours, the DigiMasterJi_System should automatically prepare a review quiz covering recent topics to reinforce learning and maintain engagement.
 **Validates: Requirements 5.5**
 
 ### Property 17: Data Encryption and Transmission Security
-*For any* cloud-based speech processing operation, the DigiMasterJi_System should encrypt audio data during transmission to ensure privacy and security compliance.
+
+_For any_ cloud-based speech processing operation, the DigiMasterJi_System should encrypt audio data during transmission to ensure privacy and security compliance.
 **Validates: Requirements 6.2**
 
 ### Property 18: Complete Data Deletion
-*For any* student profile deletion request, the DigiMasterJi_System should permanently remove all associated data within 24 hours, ensuring complete privacy compliance.
+
+_For any_ student profile deletion request, the DigiMasterJi_System should permanently remove all associated data within 24 hours, ensuring complete privacy compliance.
 **Validates: Requirements 6.5**
 
 ### Property 19: Curriculum Content Mapping
-*For any* curriculum management operation, the Admin_Dashboard should allow proper mapping of content to specific grades and subjects, ensuring educational alignment and appropriate content delivery.
+
+_For any_ curriculum management operation, the Admin_Dashboard should allow proper mapping of content to specific grades and subjects, ensuring educational alignment and appropriate content delivery.
 **Validates: Requirements 8.3**
 
 ### Property 20: Bandwidth-Optimized Content Delivery
-*For any* network bandwidth constraint scenario, the DigiMasterJi_System should prioritize essential content downloads to ensure core functionality remains available even under limited connectivity conditions.
+
+_For any_ network bandwidth constraint scenario, the DigiMasterJi_System should prioritize essential content downloads to ensure core functionality remains available even under limited connectivity conditions.
 **Validates: Requirements 9.3**
 
 ## Error Handling
@@ -847,12 +899,14 @@ async def lambda_handler(event: Dict, context: Dict) -> Dict:
 ### Voice Interface Error Handling
 
 **Speech Recognition Failures**:
+
 - Fallback to browser Web Speech API when Whisper fails
 - Request audio re-recording for unclear speech
 - Provide visual feedback when audio-only mode is disabled
 - Maintain conversation context across recognition attempts
 
 **Language Detection Errors**:
+
 - Default to student's preferred language from profile
 - Allow manual language selection override
 - Graceful degradation to English/Hindi as fallback languages
@@ -860,12 +914,14 @@ async def lambda_handler(event: Dict, context: Dict) -> Dict:
 ### Offline Operation Error Handling
 
 **Storage Quota Exceeded**:
+
 - Implement intelligent cache eviction based on usage patterns
 - Prioritize current curriculum content over older materials
 - Notify users when storage is critically low
 - Provide cache management options
 
 **Sync Conflict Resolution**:
+
 - Timestamp-based conflict resolution with local data priority
 - Merge non-conflicting changes automatically
 - Flag irreconcilable conflicts for manual review
@@ -874,12 +930,14 @@ async def lambda_handler(event: Dict, context: Dict) -> Dict:
 ### RAG System Error Handling
 
 **Content Retrieval Failures**:
+
 - Graceful degradation to cached content when vector search fails
 - Clear messaging when content is unavailable
 - Suggest alternative topics within available content
 - Log retrieval failures for system monitoring
 
 **Generation Quality Control**:
+
 - Validate generated responses against NCERT source material
 - Reject responses that cannot be properly cited
 - Implement confidence scoring for generated content
@@ -888,12 +946,14 @@ async def lambda_handler(event: Dict, context: Dict) -> Dict:
 ### Network and Connectivity Errors
 
 **Intermittent Connectivity**:
+
 - Queue operations for background sync when connection is restored
 - Implement exponential backoff for failed network requests
 - Provide clear offline/online status indicators
 - Cache critical responses for offline access
 
 **API Service Failures**:
+
 - Graceful degradation to offline-only mode
 - Retry mechanisms with circuit breaker patterns
 - Alternative service endpoints for redundancy
@@ -906,6 +966,7 @@ async def lambda_handler(event: Dict, context: Dict) -> Dict:
 DigiMasterJi requires comprehensive testing through both unit tests and property-based tests to ensure reliability in diverse rural deployment scenarios.
 
 **Unit Tests** focus on:
+
 - Specific examples of voice recognition in different Indian languages
 - Edge cases like extremely low storage or poor network conditions
 - Integration points between PWA, service workers, and IndexedDB
@@ -916,6 +977,7 @@ DigiMasterJi requires comprehensive testing through both unit tests and property
 - Bedrock API integration and error handling
 
 **Property-Based Tests** focus on:
+
 - Universal properties that hold across all inputs and scenarios
 - Comprehensive input coverage through randomization of student profiles, content, and device conditions
 - Stress testing with generated data representing diverse rural usage patterns
@@ -929,6 +991,7 @@ DigiMasterJi requires comprehensive testing through both unit tests and property
 
 **Property Test Tagging Format**:
 Each property-based test must include a comment referencing its design document property:
+
 ```typescript
 // Feature: digimasterji, Property 1: Multilingual Voice Processing Accuracy
 ```
@@ -953,6 +1016,7 @@ Each property-based test must include a comment referencing its design document 
 8. **EventBridge Scheduler**: Test quiz generation timing and backlog handling
 
 **AWS Integration Testing**:
+
 - Lambda function invocation with various payloads
 - DynamoDB table operations and GSI queries
 - S3 document upload and retrieval
@@ -961,6 +1025,7 @@ Each property-based test must include a comment referencing its design document 
 - CloudWatch log verification
 
 **Performance Testing**:
+
 - Load testing with multiple concurrent students on shared devices
 - Memory usage testing during extended offline periods
 - Battery consumption testing during intensive voice processing
@@ -969,12 +1034,14 @@ Each property-based test must include a comment referencing its design document 
 - DynamoDB read/write capacity monitoring
 
 **Accessibility Testing**:
+
 - Complete audio-only mode functionality verification
 - Screen reader compatibility for visual elements
 - Voice navigation testing across all system features
 - Low-light and no-light usage scenario testing
 
 **Security and Privacy Testing**:
+
 - Audio data handling and immediate disposal verification
 - Local storage encryption and data protection testing
 - Network transmission security validation (HTTPS)
@@ -983,6 +1050,7 @@ Each property-based test must include a comment referencing its design document 
 - IAM permission verification for least-privilege access
 
 **Production Deployment Testing**:
+
 - End-to-end testing on AWS infrastructure
 - API Gateway CORS configuration validation
 - Lambda function timeout and memory optimization

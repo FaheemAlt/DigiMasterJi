@@ -217,12 +217,13 @@
 | **AWS Lambda**             | Serverless Compute                                                 |
 | **API Gateway**            | HTTP API                                                           |
 | **DynamoDB**               | NoSQL Database (users, profiles, conversations, messages, quizzes) |
-| **S3**                     | Document Storage                                                   |
+| **S3**                     | Document Storage + Frontend Static Hosting                         |
 | **Bedrock**                | LLM (Nova Lite) + Embeddings (Titan V2)                            |
 | **Bedrock Knowledge Base** | RAG Pipeline                                                       |
 | **EventBridge**            | Quiz Scheduler                                                     |
 | **ECR**                    | Container Registry                                                 |
 | **CloudWatch**             | Logging & Monitoring                                               |
+| **CloudFront**             | CDN for Frontend (S3 Static Hosting)                               |
 | **IAM**                    | Security & Access Control                                          |
 
 ### External Services
@@ -231,7 +232,8 @@
 | ----------------- | ---------------------------------- |
 | **MongoDB Atlas** | Vector Search (Bedrock KB Backend) |
 | **Deepgram**      | Cloud STT API                      |
-| **Vercel**        | Frontend Hosting                   |
+
+> **Note**: Frontend is hosted on AWS S3 + CloudFront for full AWS deployment.
 
 ---
 
@@ -415,17 +417,19 @@ This includes:
 8. API Gateway (HTTP API)
 9. EventBridge for quiz scheduling
 
-### Frontend Deployment (Vercel)
+### Frontend Deployment (S3 + CloudFront)
 
 ```bash
 cd Frontend
 
-# Install Vercel CLI
-npm i -g vercel
+# Build the frontend
+VITE_API_URL=https://your-api-gateway-url.amazonaws.com npm run build
 
-# Deploy
-vercel --prod
+# Deploy to S3 and invalidate CloudFront cache
+./deploy-aws.sh
 ```
+
+See [AWS_SETUP_GUIDE.md](Documentation/AWS_SETUP_GUIDE.md#frontend-deployment-s3--cloudfront) for detailed setup instructions.
 
 ---
 
@@ -543,7 +547,8 @@ VITE_SYNC_DAYS=180
 | Service             | Monthly Cost      |
 | ------------------- | ----------------- |
 | DynamoDB            | $0.19             |
-| S3                  | $0.19             |
+| S3 (KB + Frontend)  | $0.33             |
+| CloudFront          | $0.10             |
 | Lambda              | $0.00 (free tier) |
 | API Gateway         | $0.00 (free tier) |
 | Bedrock (Nova Lite) | $0.82             |
@@ -551,22 +556,23 @@ VITE_SYNC_DAYS=180
 | ECR                 | $0.20             |
 | EventBridge         | $0.01             |
 | CloudWatch          | $0.06             |
-| **Total**           | **~$1.47/month**  |
+| **Total**           | **~$1.61/month**  |
 
 ### Early Product (~500-1000 users)
 
 | Service             | Monthly Cost      |
 | ------------------- | ----------------- |
 | DynamoDB            | $8.75             |
-| S3                  | $2.55             |
+| S3 (KB + Frontend)  | $2.60             |
+| CloudFront          | $13.50            |
 | Lambda              | $25.40            |
 | API Gateway         | $2.00             |
 | Bedrock (Nova Lite) | $16.00            |
 | MongoDB Atlas (M2)  | $9.00             |
 | ECR                 | $0.50             |
 | EventBridge         | $0.50             |
-| CloudWatch          | $20.60            |
-| **Total**           | **~$85.30/month** |
+| CloudWatch          | $1.74             |
+| **Total**           | **~$79.99/month** |
 
 ---
 
